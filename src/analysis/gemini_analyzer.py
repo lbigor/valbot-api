@@ -197,6 +197,8 @@ RESPONSE_SCHEMA_V26 = {
         # (constituição §V). O modelo devolve o veredito observado por item.
         "checklist_anexo_k": {
             "type": "array",
+            "minItems": 12,
+            "maxItems": 12,
             "items": {
                 "type": "object",
                 "properties": {
@@ -207,7 +209,7 @@ RESPONSE_SCHEMA_V26 = {
                     },
                     "evidencia": {"type": "string"},
                 },
-                "required": ["id", "veredito"],
+                "required": ["id", "veredito", "evidencia"],
             },
         },
         "escopo_avaliado": {"type": "array", "items": {"type": "string"}},
@@ -221,6 +223,7 @@ RESPONSE_SCHEMA_V26 = {
         "aprovado",
         "pontuacao_total",
         "infracoes_detectadas",
+        "checklist_anexo_k",
         "catalog_version",
         "rejected",
     ],
