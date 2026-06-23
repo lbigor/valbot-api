@@ -2085,6 +2085,7 @@ def save_supervisor_decisao(
     decisao: str,
     resultado_final: str | None,
     justificativa: str | None,
+    homologar_conduta: bool = False,
 ) -> dict | None:
     """Grava a decisão do Supervisor (upsert UNIQUE os_id) + encerra a OS + audita.
 
@@ -2128,11 +2129,19 @@ def save_supervisor_decisao(
             srow = c.execute(
                 """
                 INSERT INTO supervisor_decisoes
-                    (os_id, supervisor_email, decisao_final, concorda_auditor, justificativa)
-                VALUES (%s, %s, %s, %s, %s)
+                    (os_id, supervisor_email, decisao_final, concorda_auditor,
+                     justificativa, homologar_conduta)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id::text, created_at
                 """,
-                (os_id, supervisor, decisao, concorda_auditor, justificativa or ""),
+                (
+                    os_id,
+                    supervisor,
+                    decisao,
+                    concorda_auditor,
+                    justificativa or "",
+                    bool(homologar_conduta),
+                ),
             ).fetchone()
             # Encerra a OS
             c.execute(
@@ -2174,6 +2183,7 @@ def save_supervisor_decisao(
                 "decisao": decisao,
                 "resultado_final": resultado_final,
                 "concorda_auditor": concorda_auditor,
+                "homologar_conduta": bool(homologar_conduta),
                 "justificativa": justificativa,
                 "created_at": srow[1],
                 "status_os": "decisao_final",
@@ -2194,7 +2204,7 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
             row = c.execute(
                 """
                 SELECT id::text, os_id::text, supervisor_email, decisao_final,
-                       concorda_auditor, justificativa, created_at
+                       concorda_auditor, homologar_conduta, justificativa, created_at
                 FROM supervisor_decisoes WHERE os_id = %s
                 """,
                 (os_id,),
@@ -2207,6 +2217,7 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
                 "supervisor",
                 "decisao",
                 "concorda_auditor",
+                "homologar_conduta",
                 "justificativa",
                 "created_at",
             ]

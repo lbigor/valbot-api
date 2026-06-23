@@ -6926,6 +6926,10 @@ class _DecisaoSupervisorIn(BaseModel):
     decisao: str = Field(..., description="homologar | reformar")
     justificativa: str | None = None
     resultado_final: str | None = Field(None, description="aprovado | reprovado")
+    homologar_conduta: bool = Field(
+        False,
+        description="Mantém (true) o encaminhamento da conduta da examinadora ao DETRAN (Bloco 9).",
+    )
 
 
 @app.post("/api/os/{os_id}/decisao")
@@ -6950,6 +6954,7 @@ def post_decisao_supervisor(
         decisao=data.decisao,
         resultado_final=data.resultado_final,
         justificativa=data.justificativa,
+        homologar_conduta=data.homologar_conduta,
     )
     if saved is None:
         return {
@@ -6958,6 +6963,7 @@ def post_decisao_supervisor(
             "decisao": data.decisao,
             "resultado_final": data.resultado_final,
             "justificativa": data.justificativa,
+            "homologar_conduta": data.homologar_conduta,
             "status_os": "decisao_final",
             "source": "mock",
         }
