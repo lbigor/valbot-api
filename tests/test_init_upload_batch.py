@@ -71,7 +71,7 @@ HDR = {"X-API-Key": "vbk_live_test_dummy", "Content-Type": "application/json"}
 def test_single_object_returns_object(client):
     r = client.post(
         "/api/exams/init-upload",
-        json={"url": "https://example.com/video.mp4", "renach": "SP-12345"},
+        json={"url": "https://example.com/video.mp4", "renach": "SP-12345", "categoria": "B"},
         headers=HDR,
     )
     assert r.status_code == 200, r.text
@@ -85,7 +85,7 @@ def test_single_object_returns_object(client):
 def test_single_object_invalid_url_returns_422(client):
     r = client.post(
         "/api/exams/init-upload",
-        json={"url": "https://invalid.example/v.mp4", "renach": "SP-X"},
+        json={"url": "https://invalid.example/v.mp4", "renach": "SP-X", "categoria": "B"},
         headers=HDR,
     )
     assert r.status_code == 422
@@ -99,8 +99,20 @@ def test_single_object_invalid_url_returns_422(client):
 
 def test_batch_two_valid_items_returns_array_same_order(client):
     payload = [
-        {"url": "https://example.com/a.mp4", "id": 100, "renach": "SP-A", "processo": 111},
-        {"url": "https://example.com/b.mp4", "id": 200, "renach": "SP-B", "processo": 222},
+        {
+            "url": "https://example.com/a.mp4",
+            "id": 100,
+            "renach": "SP-A",
+            "processo": 111,
+            "categoria": "B",
+        },
+        {
+            "url": "https://example.com/b.mp4",
+            "id": 200,
+            "renach": "SP-B",
+            "processo": 222,
+            "categoria": "B",
+        },
     ]
     r = client.post("/api/exams/init-upload", json=payload, headers=HDR)
     assert r.status_code == 200, r.text
@@ -119,9 +131,9 @@ def test_batch_two_valid_items_returns_array_same_order(client):
 
 def test_batch_partial_success_invalid_url_does_not_drop_others(client):
     payload = [
-        {"url": "https://example.com/ok.mp4", "id": 1, "renach": "SP-OK"},
-        {"url": "https://nao-existe.invalid/x.mp4", "id": 2, "renach": "SP-FAIL"},
-        {"url": "https://example.com/ok2.mp4", "id": 3, "renach": "SP-OK2"},
+        {"url": "https://example.com/ok.mp4", "id": 1, "renach": "SP-OK", "categoria": "B"},
+        {"url": "https://nao-existe.invalid/x.mp4", "id": 2, "renach": "SP-FAIL", "categoria": "B"},
+        {"url": "https://example.com/ok2.mp4", "id": 3, "renach": "SP-OK2", "categoria": "B"},
     ]
     r = client.post("/api/exams/init-upload", json=payload, headers=HDR)
     assert r.status_code == 200, r.text
@@ -143,6 +155,7 @@ def test_batch_external_id_persisted_in_response(client):
             "id": 784562,
             "renach": "SP1234567890",
             "processo": 1234567890,
+            "categoria": "B",
         }
     ]
     r = client.post("/api/exams/init-upload", json=payload, headers=HDR)
@@ -152,7 +165,7 @@ def test_batch_external_id_persisted_in_response(client):
 
 
 def test_batch_without_id_returns_external_id_null(client):
-    payload = [{"url": "https://example.com/v.mp4", "renach": "SP-X"}]
+    payload = [{"url": "https://example.com/v.mp4", "renach": "SP-X", "categoria": "B"}]
     r = client.post("/api/exams/init-upload", json=payload, headers=HDR)
     assert r.status_code == 200
     assert r.json()[0]["external_id"] is None

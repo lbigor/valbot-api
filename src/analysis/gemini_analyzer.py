@@ -1508,17 +1508,23 @@ def _normalize_checklist_anexo_k(raw: dict) -> list[dict]:
         for it in bruto:
             if not isinstance(it, dict):
                 continue
+            raw_id = it.get("id")
+            if raw_id is None:
+                continue
             try:
-                iid = int(it.get("id"))
+                iid = int(raw_id)
             except (TypeError, ValueError):
                 continue
             por_id[iid] = it
     out: list[dict] = []
     for iid, label in _ANEXO_K_ITENS:
         src = por_id.get(iid) or {}
+        veredito: str | None
         if iid == 1:
             veredito = "NAO_AVALIAVEL"
-            evidencia = "Conferência biométrica do candidato não é verificável pela análise de vídeo."
+            evidencia = (
+                "Conferência biométrica do candidato não é verificável pela análise de vídeo."
+            )
         else:
             veredito = _normalize_veredito_anexo_k(src.get("veredito"))
             evidencia = (str(src.get("evidencia") or "")).strip()
