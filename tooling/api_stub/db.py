@@ -1425,10 +1425,14 @@ def count_resultados(
 
 def laudo_dossie(exam_hash: str) -> dict | None:
     """Junta tudo que alimenta o PDF do laudo (§14.2): exam + comitê + parecer +
-    decisão supervisor + eventos da OS. None se DB off ou exame inexistente.
+    decisão supervisor + eventos da OS + divergência + eventos brutos +
+    enquadramentos + infrações oficiais + compliance + matriz vigente.
+    None se DB off ou exame inexistente.
 
-    Resiliente: cada bloco é isolado; ausência de OS/parecer/decisão devolve
-    None nesse bloco sem derrubar o resto.
+    Resiliente: cada bloco é isolado; ausência de OS/parecer/decisão/divergência
+    devolve None/[] nesse bloco sem derrubar o resto. Colunas de `exams` fora da
+    view (identificação completa, resultado oficial detalhado) vêm de um SELECT
+    direto extra, também best-effort.
     """
     if _disabled():
         return None
@@ -1443,6 +1447,44 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                 return None
             cols = [d.name for d in cur.description]
             out: dict = {"exam": dict(zip(cols, row))}
+
+            # Colunas de `exams` que a view v_exams_overview NÃO expõe mas que o
+            # laudo precisa (identificação completa §3, resultado oficial §4,
+            # resultado calculado §5, identificação do laudo §1). Best-effort:
+            # se alguma coluna não existir no schema do cliente, o bloco inteiro
+            # é ignorado sem derrubar o resto.
+            try:
+                xrow = c.execute(
+                    """
+                    SELECT processo, rubrica, training_annotations,
+                           unidade, tipo_exame,
+                           examinador_matricula, examinador_eh_preposto,
+                           data_hora_exame,
+                           pontuacao_oficial, houve_interrupcao, motivo_interrupcao,
+                           resultado_calculado, pontuacao_calculada, matriz_versao,
+                           engine_backend, engine_model, engine_preset,
+                           cost_usd, cost_tokens_in, cost_tokens_out, gemini_elapsed_s
+                    FROM exams WHERE hash = %s
+                    """,
+                    (exam_hash,),
+                ).fetchone()
+                if xrow:
+                    xcols = [
+                        "processo", "rubrica", "training_annotations",
+                        "unidade", "tipo_exame",
+                        "examinador_matricula", "examinador_eh_preposto",
+                        "data_hora_exame",
+                        "pontuacao_oficial", "houve_interrupcao", "motivo_interrupcao",
+                        "resultado_calculado", "pontuacao_calculada", "matriz_versao",
+                        "engine_backend", "engine_model", "engine_preset",
+                        "cost_usd", "cost_tokens_in", "cost_tokens_out", "gemini_elapsed_s",
+                    ]
+                    # Não sobrescreve chaves já vindas da view (ex.: nenhuma
+                    # colide hoje, mas mantém a view como fonte preferencial).
+                    for k, v in dict(zip(xcols, xrow)).items():
+                        out["exam"].setdefault(k, v)
+            except Exception as e:
+                log.warning("laudo_dossie exam_extra falhou: %s", e)
 
             # OS mais recente do exame.
             # NOTA schema: ordens_servico não tem exam_hash (usa exam_id), nem as
@@ -1604,6 +1646,145 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                 except Exception as e:
                     log.warning("laudo_dossie os_eventos falhou: %s", e)
                     out["os_eventos"] = []
+
+            # --- Análise de divergência (§6) — exam_divergencias (1 por exame) --
+            try:
+                drow = c.execute(
+                    """
+                    SELECT tipo_divergencia, subtipos_associados,
+                           resultado_oficial, resultado_calculado,
+                           pontuacao_oficial, pontuacao_calculada,
+                           concorda_resultado, concorda_pontuacao, concorda_infracoes,
+                           evidencia_suficiente, encaminhamento, detalhes, created_at
+                    FROM exam_divergencias
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    """,
+                    (exam_hash,),
+                ).fetchone()
+                if drow:
+                    dcols = [
+                        "tipo_divergencia", "subtipos_associados",
+                        "resultado_oficial", "resultado_calculado",
+                        "pontuacao_oficial", "pontuacao_calculada",
+                        "concorda_resultado", "concorda_pontuacao", "concorda_infracoes",
+                        "evidencia_suficiente", "encaminhamento", "detalhes", "created_at",
+                    ]
+                    out["divergencia"] = dict(zip(dcols, drow))
+            except Exception as e:
+                log.warning("laudo_dossie divergencia falhou: %s", e)
+
+            # --- Eventos BRUTOS detectados (§7 sem-enquadramento, §8 timeline) --
+            try:
+                evcur = c.execute(
+                    """
+                    SELECT evento_id, categoria, descricao,
+                           timestamp_video_seg, timestamp_audio_seg, duracao_seg,
+                           confianca, canal_evidencia, quadrante_origem, camera_origem,
+                           transcricao, classificacao, contexto
+                    FROM exam_eventos
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    ORDER BY timestamp_video_seg NULLS LAST
+                    """,
+                    (exam_hash,),
+                )
+                evcols = [d.name for d in evcur.description]
+                out["eventos"] = [dict(zip(evcols, r)) for r in evcur.fetchall()]
+            except Exception as e:
+                log.warning("laudo_dossie eventos falhou: %s", e)
+                out["eventos"] = []
+
+            # --- Enquadramentos (evento → regra da Matriz; fundamentação §7) ----
+            try:
+                enqcur = c.execute(
+                    """
+                    SELECT evento_id, enquadrado, regra_aplicada, artigo_ctb,
+                           ficha_mbedv, natureza, peso, excecao_aplicada,
+                           justificativa, confianca, requer_revisao_humana, matriz_versao
+                    FROM exam_enquadramentos
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    """,
+                    (exam_hash,),
+                )
+                enqcols = [d.name for d in enqcur.description]
+                out["enquadramentos"] = [dict(zip(enqcols, r)) for r in enqcur.fetchall()]
+            except Exception as e:
+                log.warning("laudo_dossie enquadramentos falhou: %s", e)
+                out["enquadramentos"] = []
+
+            # --- Infrações apontadas OFICIALMENTE pela Comissão (§4) ------------
+            try:
+                iocur = c.execute(
+                    """
+                    SELECT artigo_ctb, natureza, peso
+                    FROM exam_infracoes_oficiais
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    ORDER BY artigo_ctb
+                    """,
+                    (exam_hash,),
+                )
+                iocols = [d.name for d in iocur.description]
+                out["infracoes_oficiais"] = [dict(zip(iocols, r)) for r in iocur.fetchall()]
+            except Exception as e:
+                log.warning("laudo_dossie infracoes_oficiais falhou: %s", e)
+                out["infracoes_oficiais"] = []
+
+            # --- Compliance (sinais não-pontuáveis: conduta examinador/candidato)
+            try:
+                cmcur = c.execute(
+                    """
+                    SELECT tipo, origem_codigo, descricao, timestamp_s,
+                           transcricao, classificacao, severidade, status
+                    FROM exam_comentarios_compliance
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    ORDER BY timestamp_s NULLS LAST
+                    """,
+                    (exam_hash,),
+                )
+                cmcols = [d.name for d in cmcur.description]
+                out["compliance"] = [dict(zip(cmcols, r)) for r in cmcur.fetchall()]
+            except Exception as e:
+                log.warning("laudo_dossie compliance falhou: %s", e)
+                out["compliance"] = []
+
+            # --- Extras do laudo do Comitê (§1/§2: versão, tempo, custo) --------
+            # O bloco laudo_comite acima usa o schema 013; aqui buscamos as
+            # colunas extras do schema 012 (comite_versao/tempo/custo) que só
+            # existem quando a migration 012 foi aplicada. Best-effort.
+            try:
+                cxrow = c.execute(
+                    """
+                    SELECT comite_versao, tipo_divergencia_analisada,
+                           tempo_processamento_seg, cost_usd
+                    FROM exam_comite_laudos
+                    WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (exam_hash,),
+                ).fetchone()
+                if cxrow:
+                    out["comite_meta"] = {
+                        "comite_versao": cxrow[0],
+                        "tipo_divergencia_analisada": cxrow[1],
+                        "tempo_processamento_seg": cxrow[2],
+                        "cost_usd": cxrow[3],
+                    }
+            except Exception as e:
+                log.warning("laudo_dossie comite_meta falhou: %s", e)
+
+            # --- Matriz Nacional vigente (§1: matriz nacional v1.x) -------------
+            try:
+                mrow = c.execute(
+                    """
+                    SELECT versao, descricao FROM matriz_versoes
+                    WHERE vigente = TRUE
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                ).fetchone()
+                if mrow:
+                    out["matriz_vigente"] = {"versao": mrow[0], "descricao": mrow[1]}
+            except Exception as e:
+                log.warning("laudo_dossie matriz_vigente falhou: %s", e)
+
             return out
     except Exception as e:
         log.exception("db.laudo_dossie falhou hash=%s: %s", exam_hash, e)
