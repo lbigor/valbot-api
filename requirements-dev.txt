@@ -7,11 +7,11 @@
 # =============================================================================
 
 # OpenCV — processamento local de frames (src/detectors/*, src/ingestion/*)
-opencv-python==4.10.0.84
+opencv-python==4.13.0.92
 
 # Whisper local (transcrição de áudio sem chamar Vertex).
 # Puxa transitivamente ctranslate2 + av + onnxruntime — ~294 MB.
-faster-whisper==1.0.3
+faster-whisper==1.2.1
 
 # Trilha A: Mac (M1/M2/M3) com MLX
 # mlx==0.18.0

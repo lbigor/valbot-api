@@ -2,8 +2,8 @@
 # numpy fica como dep transitiva do google-cloud-aiplatform (Vertex SDK),
 # mas declarar explícito mantém versão pinada.
 numpy==1.26.4
-httpx==0.27.2
-pydantic==2.9.2
+httpx==0.28.1
+pydantic==2.13.4
 
 # --- API HTTP (tooling/api_stub/server.py — backend prod) ---
 # Antes vinha so do Dockerfile (sem pin); centralizado aqui pra
@@ -23,7 +23,7 @@ weasyprint>=66.0
 jinja2>=3.1.6
 
 # --- Postgres ---
-psycopg[binary]==3.2.3
+psycopg[binary]==3.3.4
 
 # --- AWS S3 (download de vídeos de buckets privados — SDK boto3) ---
 # Stream S3 → GCS via boto3 (sem download em disco) — usado em tooling/process_pending_s3.py.
@@ -31,7 +31,7 @@ boto3>=1.43.0
 
 # --- Dev (lint + testes) ---
 pytest==8.3.3
-ruff==0.6.9
+ruff==0.15.18
 
 # =============================================================================
 # REMOVIDO da imagem prod (mover pra requirements-dev.txt se for rodar
