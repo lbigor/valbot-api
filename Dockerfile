@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1 — frontend build (pnpm + Vite)
 # -----------------------------------------------------------------------------
-FROM node:22-slim AS frontend-build
+FROM node:26-slim AS frontend-build
 WORKDIR /build
 RUN npm install -g pnpm@9
 
