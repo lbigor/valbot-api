@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "valbot/laudo_deteccao/0.1",
+  "title": "Campos descritivos da detecção (Gemini) consumidos pelo Laudo v2.0",
+  "description": "Valida APENAS os campos descritivos/enumerados que o laudo oficial exige da saída do modelo. Vocabulário fechado — qualquer valor fora destes enums deve ser rejeitado/normalizado antes de entrar no laudo. NÃO valida pontuação (constitution §V).",
+  "type": "object",
+  "properties": {
+    "infracoes_avaliadas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/infracao" }
+    },
+    "infracoes_detectadas": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/infracao" }
+    },
+    "observacoes_conduta": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/observacao_conduta" }
+    }
+  },
+  "$defs": {
+    "infracao": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "enum": ["detectada", "nao_detectada", "pendente_revisao_humana"] },
+        "canal_evidencia": { "enum": ["visao", "audio", "ambos"] },
+        "camera_origem": {
+          "type": ["string", "null"],
+          "enum": ["frontal", "lateral_direita", "interna", "traseira_esq", null]
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "conduta_observada": {
+          "type": "string",
+          "description": "Frase factual curta da conduta observada no exame."
+        },
+        "evidencia_audio": {
+          "type": "string",
+          "description": "Transcrição literal do áudio relevante, entre aspas. Vazio se nenhum."
+        },
+        "excecao_considerada": {
+          "type": ["string", "null"],
+          "description": "Id/ficha da exceção MBEDV avaliada, ou null."
+        },
+        "excecao_resultado": {
+          "enum": ["aplicada", "descartada", "nao_aplicavel"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "observacao_conduta": {
+      "type": "object",
+      "properties": {
+        "categoria": {
+          "enum": ["comportamento", "audio_examinador", "trajetoria", "conduta_candidato"]
+        },
+        "origem": { "enum": ["visao", "audio", "trajetoria"] },
+        "classificacao": { "enum": ["adequado", "inadequado", "neutro"] },
+        "transcricao_audio": { "type": "string" },
+        "descricao": { "type": "string" }
+      },
+      "required": ["categoria", "descricao"],
+      "additionalProperties": true
+    }
+  }
+}

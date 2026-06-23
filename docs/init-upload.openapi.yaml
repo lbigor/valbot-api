@@ -1,0 +1,494 @@
+openapi: 3.1.0
+info:
+  title: VALBOT API — Init Upload
+  description: |
+    Endpoint da VALBOT API que registra um vídeo de exame prático DETRAN
+    (Res. CONTRAN 1.020/2025) para análise posterior.
+
+    **Dois shapes aceitos no mesmo endpoint:**
+
+    1. **Objeto único** (`InitUploadRequest`, legado — usado pelo frontend
+       `UploadVideoModal.tsx`). 13 campos, só `url` e `renach` obrigatórios.
+       Resposta: `{analysis_id, status, gs_path}`.
+    2. **Array de itens** (`[InitUploadItem]`, até 50 — usado por integradores
+       DETRAN/autoescolas). 6 campos por item, só `url` e `renach`
+       obrigatórios; aceita `id` externo (vira `external_id` no banco).
+       Resposta: `[{external_id, analysis_id, status, gs_path?, error?}]` na
+       **mesma ordem** do request.
+
+    O download da URL pro GCS roda em **background** (até 3 simultâneos), então
+    a resposta chega em <1s mesmo com vídeos grandes. Status segue
+    `uploading → queued → running → processed`/`failed`. Use
+    `GET /api/exams/{analysis_id}` pra polling.
+
+    **Convenção pra carregar infrações via `training_annotations`:** o campo é
+    nominalmente "anotações de treino", mas integradores externos reaproveitam
+    pra registrar as infrações decididas pelo examinador presencial. Convenção
+    de prefixo do texto: `Infração <GRAVIDADE> — <descrição> (<ref CONTRAN>)`.
+    Gravidades canônicas: `LEVE`, `MÉDIA`, `GRAVE`, `GRAVÍSSIMA`. Ver seção
+    "Infrações" abaixo.
+  version: "3.0.0"
+  contact:
+    name: VALBOT
+    url: https://valbot.com.br
+
+servers:
+  - url: https://valbot.com.br
+    description: Produção
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Exams
+    description: Operações sobre análises de exames práticos
+
+paths:
+  /api/exams/init-upload:
+    post:
+      tags: [Exams]
+      summary: Registra URL + RENACH de exame para análise (objeto único ou lote)
+      description: |
+        Aceita dois shapes no body:
+
+        * **Objeto único** (`InitUploadRequest`): retorna
+          `{analysis_id, status, gs_path}` — `status` inicial é `uploading`.
+        * **Array** (`[InitUploadItem]`, até 50): retorna
+          `[{external_id, analysis_id, status, gs_path?, error?}]` na mesma
+          ordem do request.
+
+        O backend valida a URL (anti-SSRF + acessibilidade via HEAD/GET),
+        cria o registro em `exams` com `status=uploading`, e dispara o
+        download da URL pro GCS em background. O pipeline de análise consome
+        depois que o vídeo está no GCS.
+
+        **Rate limit:** 10 requisições por minuto por **API key** (janela
+        deslizante de 60s). Quando ausente o header de auth, fallback para IP.
+        Excedido retorna `429` com header `Retry-After`. Headers de resposta
+        incluem `X-RateLimit-Limit`, `X-RateLimit-Remaining` e
+        `X-RateLimit-Reset`.
+      operationId: init_upload_api_exams_init_upload_post
+      parameters:
+        - name: X-API-Key
+          in: header
+          required: true
+          description: Chave de API com scope `exams:create` (emitida via `POST /api/admin/api-keys`).
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/InitUploadRequest"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/InitUploadItem"
+                  minItems: 1
+                  maxItems: 50
+              description: Objeto único (legado) ou array de itens (lote, até 50).
+            examples:
+              singleMinimal:
+                summary: Objeto único — payload mínimo
+                value:
+                  url: "https://storage.example.com/exame-12345.mp4"
+                  renach: "SP1234567890"
+              singleFull:
+                summary: Objeto único — todos os 13 campos
+                value:
+                  url: "https://storage.example.com/exame-12345.mp4"
+                  renach: "SP1234567890"
+                  candidato_nome: "João da Silva"
+                  candidato_cpf: "123.456.789-00"
+                  processo: "2026000123456"
+                  categoria: "B"
+                  veiculo: "VW Gol 1.0 ABC1D23"
+                  local: "CFC Mock — Pátio 3, São Paulo/SP"
+                  examinador: "Maria Examinadora (matr. 9876)"
+                  auto_escola: "Auto Escola Teste Ltda"
+                  rubrica: "1020/2025"
+                  training_annotations:
+                    - timestamp: "00:02:35"
+                      anotacoes: "Infração GRAVE — não sinalizou ao trocar de faixa (Res. CONTRAN 1.020/2025, Anexo II, item 2.1)"
+                    - timestamp: "00:06:42"
+                      anotacoes: "Infração GRAVÍSSIMA — quase atropelou pedestre na faixa"
+                  resultado_exame: "R"
+              batchIntegrator:
+                summary: Lote — payload típico de integrador DETRAN
+                value:
+                  - url: "https://storage.example.com/exame-12345.mp4"
+                    id: 784562
+                    renach: "SP1234567890"
+                    processo: 1234567890
+                    resultado_exame: "R"
+                    training_annotations:
+                      - timestamp: "00:02:35"
+                        anotacoes: "Infração GRAVE — não sinalizou ao trocar de faixa"
+                      - timestamp: "00:06:42"
+                        anotacoes: "Infração GRAVÍSSIMA — frenagem brusca em pedestre"
+      responses:
+        "200":
+          description: |
+            Registro(s) criado(s) com sucesso. O shape da resposta segue o shape
+            do request: objeto único devolve `InitUploadResponse`; array devolve
+            `BatchInitUploadResponse` (lista na mesma ordem).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/InitUploadResponse"
+                  - $ref: "#/components/schemas/BatchInitUploadResponse"
+              examples:
+                single:
+                  summary: Resposta pra objeto único
+                  value:
+                    analysis_id: "9b1b8b748ee14bef9acc0a04e98be4df"
+                    status: "uploading"
+                    gs_path: "gs://valbot-prod/uploads/9b1b8b748ee14bef9acc0a04e98be4df/video.mp4"
+                batch:
+                  summary: Resposta pra lote
+                  value:
+                    - external_id: 784562
+                      renach: "SP1234567890"
+                      analysis_id: "cc34e800f43c43068bdfa14f2ddb5a3f"
+                      status: "uploading"
+                      gs_path: "gs://valbot-prod/uploads/cc34e800f43c43068bdfa14f2ddb5a3f/video.mp4"
+        "401":
+          description: API key ausente, inválida, revogada ou sem scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                ausente:
+                  summary: Header não enviado
+                  value:
+                    detail: "X-API-Key header obrigatório"
+                invalida:
+                  summary: Key inválida ou sem scope
+                  value:
+                    detail: "API key inválida, revogada ou sem scope"
+        "422":
+          description: |
+            Erro de validação. Cobre três casos principais:
+
+            * **Schema inválido** (campo faltando, tipo errado) — formato padrão FastAPI/Pydantic.
+            * **URL bloqueada por anti-SSRF** (loopback, IP privado, metadata cloud, scheme não-HTTP).
+            * **URL inacessível** — backend faz HEAD/GET e rejeita 4xx/5xx ou DNS que não resolve.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/HTTPValidationError"
+                  - $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                schema:
+                  summary: Campo obrigatório faltando
+                  value:
+                    detail:
+                      - loc: [body, renach]
+                        msg: Field required
+                        type: missing
+                inacessivel:
+                  summary: URL não resolve DNS
+                  value:
+                    detail: "URL inacessível: [Errno -2] Name or service not known"
+                forbidden:
+                  summary: URL hospedada retornou 403
+                  value:
+                    detail: "URL inacessível: Client error '403 Forbidden' for url '...'"
+                ssrf:
+                  summary: Host privado bloqueado
+                  value:
+                    detail:
+                      - loc: [body, url]
+                        msg: "Value error, host privado/loopback/link-local não permitido"
+                        type: value_error
+                        input: "http://10.0.0.1/x"
+        "429":
+          description: Rate limit excedido (10 req/min por API key)
+          headers:
+            Retry-After:
+              description: Segundos até a janela liberar
+              schema: { type: integer }
+            X-RateLimit-Limit:
+              description: Limite total na janela (10)
+              schema: { type: integer }
+            X-RateLimit-Remaining:
+              description: Requisições restantes (sempre 0 em 429)
+              schema: { type: integer }
+            X-RateLimit-Reset:
+              description: Unix timestamp em que a janela libera
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                detail: "rate limit excedido (10 req/60s) — tente em 17s"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Chave de API emitida pelo endpoint admin `POST /api/admin/api-keys`
+        (que exige header `X-Admin-Token`). Deve ter scope `exams:create`.
+
+  schemas:
+    InitUploadRequest:
+      type: object
+      description: |
+        Shape legado (objeto único) — usado pelo frontend `UploadVideoModal.tsx`
+        e por integradores que mandam um exame por vez. Só `url` e `renach` são
+        obrigatórios; os outros 11 são metadados úteis pro laudo.
+      required: [url, renach]
+      properties:
+        url:
+          type: string
+          description: URL HTTPS do vídeo já hospedado externamente. Backend faz GET e copia pro GCS.
+          example: "https://storage.example.com/exame-12345.mp4"
+        renach:
+          type: string
+          minLength: 1
+          description: RENACH/CNH do candidato.
+          example: "SP1234567890"
+        candidato_nome:
+          type: string
+          default: ""
+          description: Nome completo do candidato.
+          example: "João da Silva"
+        candidato_cpf:
+          type: string
+          default: ""
+          description: CPF do candidato (qualquer formato; backend não normaliza).
+          example: "123.456.789-00"
+        processo:
+          type: string
+          default: ""
+          description: Número do processo administrativo do exame.
+          example: "2026000123456"
+        categoria:
+          type: string
+          default: ""
+          description: Categoria da CNH em exame (A, B, C, D, E ou combinações).
+          example: "B"
+        veiculo:
+          type: string
+          default: ""
+          description: Identificação do veículo usado no exame (modelo + placa).
+          example: "VW Gol 1.0 ABC1D23"
+        local:
+          type: string
+          default: ""
+          description: Local físico do exame (CFC, pátio, endereço).
+          example: "CFC Mock — Pátio 3, São Paulo/SP"
+        examinador:
+          type: string
+          default: ""
+          description: Nome e matrícula do examinador presencial.
+          example: "Maria Examinadora (matr. 9876)"
+        auto_escola:
+          type: string
+          default: ""
+          description: Razão social ou nome fantasia da auto-escola.
+          example: "Auto Escola Teste Ltda"
+        rubrica:
+          type: string
+          default: "1020/2025"
+          description: Resolução CONTRAN aplicada ao exame.
+          example: "1020/2025"
+        training_annotations:
+          type: array
+          description: |
+            Anotações humanas ancoradas em timestamps do vídeo. Cada item exige
+            `timestamp` no formato `HH:MM:SS` e `anotacoes` não vazio. Itens
+            inválidos → 422.
+
+            **Convenção pra carregar infrações:** integradores DETRAN reaproveitam
+            esse campo pra registrar as infrações decididas pelo examinador
+            presencial. Prefixar o texto com `Infração <GRAVIDADE> — <descrição>
+            (<ref CONTRAN>)`. Gravidades canônicas: `LEVE`, `MÉDIA`, `GRAVE`,
+            `GRAVÍSSIMA`.
+          items:
+            $ref: "#/components/schemas/TrainingAnnotation"
+        resultado_exame:
+          type: [string, "null"]
+          maxLength: 1
+          pattern: "^[ARN]$"
+          description: |
+            Veredito presencial do examinador.
+
+            * `A` — Aprovado
+            * `R` — Reprovado
+            * `N` — Não Avaliado (exame interrompido/desistência)
+            * omitir/null — não informado
+
+    InitUploadItem:
+      type: object
+      description: |
+        Item de lote — shape enxuto pra integradores externos (DETRAN, autoescolas)
+        que mandam array. Campos `candidato_*` e demais metadados ficam em
+        iteração 2; hoje o lote guarda só `renach`/`processo`/`external_id`.
+      required: [url, renach]
+      properties:
+        url:
+          type: string
+          description: URL HTTPS do vídeo. Backend baixa em background pro GCS.
+          example: "https://storage.example.com/exame-12345.mp4"
+        id:
+          type: [integer, "null"]
+          description: "ID externo (ex.: 784562 do DETRAN). Persiste em `exams.external_id`."
+          example: 784562
+        renach:
+          type: string
+          minLength: 1
+          description: RENACH/CNH do candidato.
+          example: "SP1234567890"
+        processo:
+          oneOf:
+            - type: integer
+            - type: string
+            - type: "null"
+          description: Número do processo (integer ou string).
+          example: 1234567890
+        training_annotations:
+          type: array
+          description: |
+            Lista de anotações humanas ancoradas em timestamps do vídeo. Mesma
+            semântica e convenção do `InitUploadRequest.training_annotations` —
+            ver descrição lá pra detalhes do prefixo `Infração <GRAVIDADE> —`.
+          items:
+            $ref: "#/components/schemas/TrainingAnnotation"
+        resultado_exame:
+          type: [string, "null"]
+          maxLength: 1
+          pattern: "^[ARN]$"
+          description: Veredito presencial. `A`/`R`/`N`/null. Idêntico ao `InitUploadRequest`.
+
+    TrainingAnnotation:
+      type: object
+      description: |
+        Anotação humana referenciando um momento específico do vídeo do exame.
+        Usada pela skill `avaliador-detran` pra ancorar feedback do examinador
+        em pontos exatos. Integradores DETRAN reaproveitam pra carregar
+        infrações estruturadas (ver convenção de prefixo na descrição do campo
+        `training_annotations` em `InitUploadRequest`).
+      required: [timestamp, anotacoes]
+      properties:
+        timestamp:
+          type: string
+          pattern: "^([0-9]{1,2}):[0-5][0-9]:[0-5][0-9]$"
+          description: "Offset dentro do vídeo no formato `HH:MM:SS` (ex.: `00:02:35`)."
+          example: "00:02:35"
+        anotacoes:
+          type: string
+          minLength: 1
+          description: |
+            Texto livre da anotação humana sobre o momento marcado. Quando
+            carregando infração, seguir a convenção `Infração <GRAVIDADE> —
+            <descrição> (<ref CONTRAN>)`.
+          example: "Infração GRAVE — não sinalizou ao trocar de faixa (Res. CONTRAN 1.020/2025, Anexo II, item 2.1)"
+
+    InitUploadResponse:
+      type: object
+      description: Resposta para request em **shape de objeto único**.
+      required: [analysis_id, status, gs_path]
+      properties:
+        analysis_id:
+          type: string
+          description: ID hex (32 chars) da análise; chave pra `GET /api/exams/{analysis_id}`.
+          example: "9b1b8b748ee14bef9acc0a04e98be4df"
+        status:
+          type: string
+          enum: [uploading, queued, running, processed, failed]
+          description: |
+            Estado do registro. No retorno do init-upload é sempre `uploading`
+            (download da URL pro GCS roda em background). Transições posteriores:
+            `uploading → queued → running → processed`/`failed`.
+          example: "uploading"
+        gs_path:
+          type: string
+          description: |
+            Caminho GCS onde o vídeo será depositado depois do download em
+            background. Formato `gs://<bucket>/uploads/<analysis_id>/video.mp4`.
+          example: "gs://valbot-prod/uploads/9b1b8b748ee14bef9acc0a04e98be4df/video.mp4"
+
+    BatchInitUploadResponse:
+      type: array
+      description: |
+        Resposta para request em **shape de lote**. Lista na **mesma ordem** do
+        request. Itens com falha de validação trazem `error` no lugar dos
+        campos de sucesso.
+      items:
+        $ref: "#/components/schemas/BatchInitUploadItem"
+
+    BatchInitUploadItem:
+      type: object
+      description: Resultado por item do lote.
+      required: [analysis_id, status]
+      properties:
+        external_id:
+          type: [integer, "null"]
+          description: Eco do `id` enviado no request (mantém vínculo com sistema externo).
+          example: 784562
+        renach:
+          type: string
+          description: Eco do `renach` enviado no request.
+          example: "SP1234567890"
+        analysis_id:
+          type: string
+          description: ID hex (32 chars) da análise.
+          example: "cc34e800f43c43068bdfa14f2ddb5a3f"
+        status:
+          type: string
+          enum: [uploading, queued, running, processed, failed]
+          description: Estado inicial (sempre `uploading` no init-upload).
+          example: "uploading"
+        gs_path:
+          type: string
+          description: Caminho GCS onde o vídeo será depositado. Ausente em itens com `error`.
+          example: "gs://valbot-prod/uploads/cc34e800f43c43068bdfa14f2ddb5a3f/video.mp4"
+        error:
+          type: string
+          description: |
+            Quando o item falhou na validação, traz a mensagem de erro. Ausente
+            em itens bem-sucedidos.
+          example: "URL inacessível: Client error '403 Forbidden'"
+
+    ErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          description: Mensagem de erro legível.
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationError"
+
+    ValidationError:
+      type: object
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+        input: {}
+        ctx:
+          type: object

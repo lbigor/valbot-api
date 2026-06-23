@@ -1,0 +1,133 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancela runs antigas quando nova chega no mesmo PR/branch
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Lint + tests Python + frontend
+  # ---------------------------------------------------------------------------
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Python 3.12
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python deps
+        run: |
+          pip install -r requirements.txt
+          pip install pre-commit pytest pytest-cov
+
+      # Node 22 + pnpm (versão vem do packageManager em frontend/package.json)
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # Lint geral via pre-commit (ruff, mypy, gitleaks)
+      - name: Pre-commit hooks
+        run: pre-commit run --all-files --show-diff-on-failure
+
+      # Frontend
+      - name: Frontend lint + build
+        working-directory: frontend
+        run: |
+          pnpm lint
+          pnpm --filter @workspace/valbot build
+
+      # Tests Python — gates de cobertura definidos em pyproject.toml
+      - name: pytest
+        run: pytest --cov=src --cov-report=xml --cov-report=term
+
+      - uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  # ---------------------------------------------------------------------------
+  # 2. Build + scan + push pra Artifact Registry (apenas em main)
+  # ---------------------------------------------------------------------------
+  build-push:
+    needs: lint-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write   # Workload Identity Federation (sem JSON)
+    env:
+      GCP_PROJECT: valbot-497920
+      GCP_REGION: us-central1
+      AR_REPO: valbot
+      IMAGE_NAME: us-central1-docker.pkg.dev/valbot-497920/valbot/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          # Configurar antes em GCP IAM:
+          #   workload_identity_provider = projects/<NUM>/locations/global/workloadIdentityPools/github/providers/<repo>
+          #   service_account = ci-deploy@project-308f1fa8-a301-49e6-a69.iam.gserviceaccount.com
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_CI_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure docker for AR
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            IMAGE_VERSION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Trivy bloqueia HIGH/CRITICAL — push acontece antes (já tagged), mas deploy não dispara se scan falha
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+
+      - name: Deploy on valbot-prod
+        if: success()
+        run: |
+          gcloud compute ssh valbot-prod --zone=us-central1-a --quiet \
+            --command "cd /opt/valbot-deploy && \
+              IMAGE_TAG=${{ github.sha }} docker compose pull api && \
+              IMAGE_TAG=${{ github.sha }} docker compose run --rm migrate && \
+              IMAGE_TAG=${{ github.sha }} docker compose up -d api"

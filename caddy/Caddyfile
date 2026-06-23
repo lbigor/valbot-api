@@ -1,0 +1,16 @@
+{
+    email lbigor@icloud.com
+}
+
+valbot.com.br {
+    encode zstd gzip
+    reverse_proxy api:80
+    log {
+        output stdout
+        format console
+    }
+}
+
+www.valbot.com.br {
+    redir https://valbot.com.br{uri} permanent
+}

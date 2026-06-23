@@ -1,0 +1,20 @@
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": { "type": "Delete" },
+        "condition": {
+          "age": 30,
+          "matchesPrefix": ["uploads/"]
+        }
+      },
+      {
+        "action": { "type": "SetStorageClass", "storageClass": "NEARLINE" },
+        "condition": {
+          "age": 90,
+          "matchesPrefix": ["analyses/"]
+        }
+      }
+    ]
+  }
+}

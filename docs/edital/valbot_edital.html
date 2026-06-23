@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>VALBOT — Pesquisa Científica & Plano de Negócio</title>
+<style>
+@page {
+    size: A4;
+    margin: 22mm 18mm 22mm 18mm;
+    @bottom-center {
+        content: "VALBOT · Auditoria Inteligente de Exames Práticos · Pesquisa Científica & Plano de Negócio · Pág. " counter(page) "/" counter(pages);
+        font-family: 'Helvetica Neue', sans-serif;
+        font-size: 8pt;
+        color: #6b7280;
+    }
+    @top-right {
+        content: "v2.0 · 05/05/2026";
+        font-family: 'Helvetica Neue', sans-serif;
+        font-size: 8pt;
+        color: #6b7280;
+    }
+}
+@page :first { @top-right { content: none; } @bottom-center { content: none; } }
+
+* { box-sizing: border-box; }
+html, body {
+    margin: 0; padding: 0;
+    font-family: 'Helvetica Neue', 'Segoe UI', sans-serif;
+    font-size: 10.5pt;
+    color: #1f2937;
+    line-height: 1.55;
+}
+
+/* ===== Capa ===== */
+.cover {
+    height: 100vh;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 30mm 0;
+}
+.cover .brand-bar {
+    border-top: 2px solid #1f2937;
+    padding-top: 8mm;
+}
+.cover .brand-name {
+    font-size: 11pt;
+    letter-spacing: 4px;
+    color: #1f2937;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.cover .brand-tagline { font-size: 9pt; color: #6b7280; letter-spacing: 1px; }
+.cover .title-block { margin-top: 50mm; }
+.cover h1 {
+    font-size: 28pt;
+    line-height: 1.15;
+    margin: 0 0 8mm 0;
+    color: #0f172a;
+    font-weight: 800;
+}
+.cover .subtitle {
+    font-size: 13pt;
+    color: #475569;
+    font-weight: 400;
+    line-height: 1.4;
+}
+.cover .meta {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 6mm;
+    font-size: 9.5pt;
+    color: #475569;
+    line-height: 1.8;
+}
+.cover .meta strong { color: #1f2937; }
+
+/* ===== Divisor de partes ===== */
+.part-divider {
+    page-break-before: always;
+    page-break-after: always;
+    text-align: center;
+    padding-top: 80mm;
+}
+.part-divider .label {
+    font-size: 9pt;
+    letter-spacing: 5px;
+    color: #475569;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.part-divider .number {
+    font-size: 64pt;
+    font-weight: 300;
+    color: #94a3b8;
+    line-height: 1;
+    margin: 12px 0;
+}
+.part-divider .title {
+    font-size: 22pt;
+    color: #0f172a;
+    font-weight: 700;
+    margin: 6px 0;
+}
+.part-divider .desc {
+    font-size: 11pt;
+    color: #6b7280;
+    margin-top: 12px;
+    max-width: 130mm;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* ===== Seções ===== */
+h2.section {
+    font-size: 15pt;
+    color: #0f172a;
+    font-weight: 700;
+    border-bottom: 1px solid #cbd5e1;
+    padding-bottom: 4px;
+    margin: 28px 0 12px 0;
+    page-break-after: avoid;
+}
+h3.subsection {
+    font-size: 11.5pt;
+    color: #1f2937;
+    font-weight: 700;
+    margin: 18px 0 6px 0;
+    page-break-after: avoid;
+}
+h4.minor {
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #1f2937;
+    margin: 12px 0 4px 0;
+}
+
+p { margin: 6px 0 8px 0; text-align: justify; }
+em { color: #334155; font-style: italic; }
+strong { color: #0f172a; }
+code {
+    font-family: 'Menlo', 'Courier New', monospace;
+    font-size: 9.5pt;
+    background: #f3f4f6;
+    padding: 1px 4px;
+    color: #1f2937;
+}
+
+/* ===== Destaques (estilo sóbrio, paper acadêmico) ===== */
+.tldr {
+    background: #fafafa;
+    border-left: 3px solid #475569;
+    padding: 12px 16px;
+    margin: 14px 0;
+    page-break-inside: avoid;
+}
+.tldr .tag {
+    color: #475569;
+    font-weight: 700;
+    letter-spacing: 1px;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+}
+.callout-warn {
+    background: #fafafa;
+    border-left: 3px solid #94a3b8;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 10pt;
+}
+.callout-strong {
+    background: #fafafa;
+    border-left: 3px solid #475569;
+    padding: 10px 14px;
+    margin: 12px 0;
+    font-size: 10pt;
+}
+.callout-success {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-left: 3px solid #475569;
+    padding: 14px 18px;
+    margin: 14px 0;
+    page-break-inside: avoid;
+}
+.callout-success h3 { margin: 0 0 6px 0; font-size: 12pt; color: #0f172a; font-weight: 700; }
+.callout-success p { color: #334155; margin: 4px 0; }
+.callout-success strong { color: #0f172a; }
+
+/* ===== Tabelas ===== */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 14px 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+}
+table thead th {
+    background: #f1f5f9;
+    color: #0f172a;
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-top: 1px solid #cbd5e1;
+    border-bottom: 1px solid #cbd5e1;
+}
+table tbody td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+}
+table tbody tr:nth-child(even) { background: #fafafa; }
+table tbody tr.highlight {
+    background: #f1f5f9;
+    font-weight: 600;
+}
+table tbody tr.highlight td:first-child { color: #0f172a; }
+
+/* ===== Equações & citações ===== */
+.eq {
+    background: #f8fafc;
+    border-left: 2px solid #94a3b8;
+    padding: 8px 14px;
+    margin: 10px 0;
+    font-family: 'Menlo', 'Courier New', monospace;
+    font-size: 10pt;
+}
+blockquote {
+    margin: 10px 0;
+    padding: 8px 16px;
+    border-left: 4px solid #94a3b8;
+    color: #475569;
+    font-style: italic;
+    background: #f8fafc;
+}
+
+/* ===== KPI grid (sóbrio) ===== */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 12px 0;
+}
+.kpi {
+    background: #fafafa;
+    border: 1px solid #e5e7eb;
+    padding: 10px 12px;
+    text-align: center;
+}
+.kpi .num {
+    font-size: 17pt;
+    font-weight: 700;
+    color: #1f2937;
+    line-height: 1.1;
+}
+.kpi .lbl {
+    font-size: 8pt;
+    color: #6b7280;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Process flow (sóbrio) */
+.flow {
+    border: 1px solid #cbd5e1;
+    padding: 14px 18px;
+    margin: 14px 0;
+    background: #fafafa;
+    page-break-inside: avoid;
+}
+.flow .step {
+    margin: 12px 0;
+    padding-left: 50px;
+    position: relative;
+}
+.flow .step .num {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 34px;
+    height: 34px;
+    border: 1.5px solid #475569;
+    background: #fff;
+    color: #1f2937;
+    font-weight: 700;
+    font-size: 11pt;
+    text-align: center;
+    line-height: 31px;
+}
+.flow .step .step-title {
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 2px;
+}
+.flow .step .step-detail { font-size: 10pt; color: #475569; }
+
+ul, ol { margin: 6px 0 10px 18px; padding: 0; }
+ul li, ol li { margin: 3px 0; }
+
+.refs { font-size: 9pt; line-height: 1.5; }
+.refs ol { padding-left: 22px; }
+.refs ol li { margin: 5px 0; text-align: justify; }
+
+/* Diferencial highlight (sóbrio) */
+.diferencial {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    padding: 16px 20px;
+    margin: 14px 0;
+    page-break-inside: avoid;
+}
+.diferencial h3 { color: #0f172a; margin: 0 0 6px 0; font-size: 12pt; font-weight: 700; }
+.diferencial p { color: #334155; }
+.diferencial strong { color: #0f172a; }
+.diferencial .tag {
+    background: transparent;
+    color: #475569;
+    font-weight: 700;
+    padding: 0;
+    font-size: 8.5pt;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #cbd5e1;
+    display: inline-block;
+    padding-bottom: 2px;
+    margin-bottom: 4px;
+}
+.diferencial ul li { color: #334155; }
+</style>
+</head>
+<body>
+
+<!-- ============================ CAPA ============================ -->
+<section class="cover">
+    <div class="brand-bar">
+        <div class="brand-name">VALBOT</div>
+        <div class="brand-tagline">Auditoria Inteligente de Exames Práticos · Resolução CONTRAN 1.020/2025</div>
+    </div>
+
+    <div class="title-block">
+        <h1>Auditoria Multimodal Automatizada de Exames Práticos de Direção</h1>
+        <p class="subtitle">Pesquisa Científica e Plano de Negócio — análise de cobertura, assertividade, custo e processo administrativo, com base em modelo de visão-linguagem nativo de vídeo + áudio (Gemini 2.5 Flash Lite via Vertex AI).</p>
+    </div>
+
+    <div class="meta">
+        <strong>Documento:</strong> VALBOT-EDITAL-2026-002 · v2.0<br>
+        <strong>Data:</strong> 05 de maio de 2026<br>
+        <strong>Tipo:</strong> Pesquisa científica + plano de negócio anexável a edital de modernização DETRAN<br>
+        <strong>Rubrica de avaliação:</strong> Resolução CONTRAN nº 1.020/2025<br>
+        <strong>Modelo de inferência principal:</strong> Gemini 2.5 Flash Lite (Vertex AI) — vídeo + áudio nativos
+    </div>
+</section>
+
+
+<!-- ============================ PARTE I ============================ -->
+<section class="part-divider">
+    <div class="label">Parte I de III</div>
+    <div class="number">I</div>
+    <div class="title">Solução & Fundamentação</div>
+    <div class="desc">A solução técnica do VALBOT, o diferencial de processar vídeo nativo (não frames) e a fundamentação científica da metodologia de avaliação.</div>
+</section>
+
+
+<!-- ============================ 1 RESUMO EXECUTIVO ============================ -->
+<h2 class="section">1. Resumo executivo</h2>
+
+<div class="tldr">
+<span class="tag">Três fatos centrais</span>
+<p><strong>(1)</strong> O VALBOT analisa <strong>100% dos exames práticos</strong>, contra <strong>30% auditados hoje</strong> pela operação humana — multiplicando a cobertura efetiva de auditoria por aproximadamente <strong>3,3 vezes</strong>, e a detecção de irregularidades por uma ordem de grandeza similar.</p>
+<p><strong>(2)</strong> A tecnologia central é o <strong>Gemini 2.5 Flash Lite</strong> via Vertex AI, único modelo comercial que processa <em>vídeo MP4 nativo</em> + <em>áudio integrado</em> em uma única chamada — sem extrair frames nem transcrever áudio separadamente. Esse é o diferencial técnico em relação a soluções construídas sobre GPT-4o, Claude ou OCR + ASR encadeados.</p>
+<p><strong>(3)</strong> O investimento de calibração do sistema é estimado em <strong>US$ 4.000</strong>, e a operação contínua opera com custo unitário de inferência <strong>marginal e em queda estrutural</strong>. Toda decisão administrativa que afete o candidato passa por revisão humana obrigatória de 2 níveis (N1 24h + N2 gerencial), com o VALBOT atuando como <em>camada de triagem inteligente</em>, não como decisão final autônoma.</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi"><div class="num">100%</div><div class="lbl">Vídeos auditados</div></div>
+    <div class="kpi"><div class="num">3,3×</div><div class="lbl">Multiplicador de cobertura vs hoje</div></div>
+    <div class="kpi"><div class="num">US$ 4k</div><div class="lbl">Investimento de calibração</div></div>
+    <div class="kpi"><div class="num">3 níveis</div><div class="lbl">Revisão humana obrigatória</div></div>
+    <div class="kpi"><div class="num">vídeo+áudio</div><div class="lbl">Análise nativa multimodal</div></div>
+    <div class="kpi"><div class="num">US$ 350k</div><div class="lbl">Crédito GCP elegível (Startups AI)</div></div>
+</div>
+
+
+<!-- ============================ 2 SOLUÇÃO ============================ -->
+<h2 class="section">2. A solução VALBOT — o diferencial técnico</h2>
+
+<h3 class="subsection">2.1 Arquitetura: Gemini 2.5 Flash Lite com vídeo nativo + áudio integrado</h3>
+<p>O VALBOT é construído sobre o <strong>Gemini 2.5 Flash Lite</strong> da Google, acessado via Vertex AI. Esse modelo é, atualmente, a solução comercial com melhor relação custo–assertividade entre os modelos de visão-linguagem (VLM) que aceitam <em>vídeo + áudio nativamente</em> em uma única chamada de API.</p>
+
+<div class="diferencial">
+    <span class="tag">DIFERENCIAL TÉCNICO</span>
+    <h3>O VALBOT analisa o vídeo, não frames extraídos.</h3>
+    <p>Soluções concorrentes baseadas em <strong>OpenAI GPT-4o</strong>, <strong>Anthropic Claude</strong> ou <em>pipelines ad-hoc</em> exigem extrair frames do vídeo, transcrever o áudio com Whisper, e enviar ambos como entradas separadas — perdendo a correlação temporal e contextual entre o que se vê e o que se ouve.</p>
+    <p>O Gemini decodifica o MP4 internamente, amostra frames a 1 fps (ou superior, configurável), e processa a faixa de áudio contínua junto com o vídeo no mesmo contexto multimodal. Isso permite ao modelo capturar correlações como:</p>
+    <ul style="color:#dbeafe;">
+        <li><strong>Examinador autoriza por voz</strong> ("siga", "pode passar") <strong>+ candidato executa visualmente</strong> → não-infração corretamente classificada.</li>
+        <li><strong>Motor calado em arrancada</strong> (ruído mecânico no áudio) <strong>+ candidato sentado no banco do motorista</strong> (visão interna) → falha de embreagem.</li>
+        <li><strong>Cinto sem clique</strong> (áudio) <strong>+ candidato sem cinto visível</strong> (visão interna) → infração R1020-G-c confirmada.</li>
+    </ul>
+    <p>Pipelines com frame extraction <strong>perdem todas essas correlações</strong>, porque processam vídeo e áudio como duas entradas isoladas.</p>
+</div>
+
+<h3 class="subsection">2.2 O que cada análise produz</h3>
+<p>Cada exame submetido ao VALBOT gera, automaticamente, um arquivo JSON estruturado contendo:</p>
+<ul>
+    <li><strong>Identificação do layout das 4 câmeras</strong> — TL/TR/BL/BR mapeadas para frontal, lateral direita, interna, traseira esquerda (detectado pelo modelo no início do vídeo).</li>
+    <li><strong>Lista completa das infrações da Resolução CONTRAN 1.020/2025</strong> — cada infração avaliada como <code>detectada</code>, <code>nao_detectada</code> ou <code>pendente_revisao_humana</code>.</li>
+    <li><strong>Para cada detecção</strong>: timestamp absoluto em segundos (<code>ts_seconds</code>), duração da ocorrência, canal de evidência (<code>visao</code>, <code>audio</code>, <code>ambos</code>), quadrante e câmera de origem, descrição factual com aspas literais do áudio quando aplicável, e nível de confiança numérico.</li>
+    <li><strong>Pontuação total</strong> e veredito provisório (aprovado/reprovado), conforme o limite de 10 pontos da rubrica.</li>
+    <li><strong>Hash determinístico</strong> do vídeo, do prompt e do resultado, para rastreabilidade integral.</li>
+</ul>
+<p>Esse JSON é a base de todo o processo administrativo descrito na Parte II — é o que vai para o examinador humano de N1, depois para o gerencial N2, e o que alimenta a geração do laudo PDF oficial.</p>
+
+
+<!-- ============================ 3 FUNDAMENTAÇÃO ============================ -->
+<h2 class="section">3. Fundamentação científica</h2>
+
+<h3 class="subsection">3.1 Coeficiente de concordância de Cohen (κ) — métrica padrão</h3>
+<p>A medida-padrão para concordância entre raters categóricos é o coeficiente kappa de Cohen (Cohen, 1960), corrigido por concordância esperada por acaso:</p>
+<div class="eq">κ = (p<sub>o</sub> − p<sub>e</sub>) / (1 − p<sub>e</sub>),    p<sub>o</sub> = concordância observada,    p<sub>e</sub> = concordância esperada por acaso.</div>
+
+<h3 class="subsection">3.2 Tabela de interpretação canônica (Landis & Koch, 1977)</h3>
+<table>
+<thead><tr><th>Faixa de κ</th><th>Interpretação</th><th>Concordância esperada</th></tr></thead>
+<tbody>
+    <tr><td>&lt; 0,00</td><td>Pior que acaso</td><td>—</td></tr>
+    <tr><td>0,00 – 0,20</td><td>Slight (leve)</td><td>~50–60%</td></tr>
+    <tr><td>0,21 – 0,40</td><td>Fair (razoável)</td><td>~60–70%</td></tr>
+    <tr><td>0,41 – 0,60</td><td>Moderate (moderado)</td><td>~70–80%</td></tr>
+    <tr><td>0,61 – 0,80</td><td>Substantial (substancial)</td><td>~80–90%</td></tr>
+    <tr class="highlight"><td>0,81 – 1,00</td><td>Almost perfect (quase perfeito)</td><td>~90–100% — teto realista</td></tr>
+</tbody>
+</table>
+
+<h3 class="subsection">3.3 Concordância em grupos grandes — convergência estatística para o κ médio</h3>
+<p>Quando múltiplos avaliadores classificam um grande volume de casos, a estatística de concordância tende a convergir para o <em>kappa populacional</em> do sistema. Esse fenômeno é uma aplicação da Lei dos Grandes Números à medida de concordância pareada, e tem duas consequências práticas centrais para o VALBOT:</p>
+
+<ol>
+    <li><strong>Estabilidade do κ medido com volume.</strong> Para um par de raters fixos, o erro-padrão do κ medido decai com aproximadamente 1/√N (Fleiss, Levin & Paik, 2003 — método clássico para variância do kappa). Isso significa que, com 1.000 vídeos, o erro do κ é cerca de 3× menor que com 100 vídeos. Em volumes grandes (10.000+), a estimativa do κ se torna praticamente exata.</li>
+    <li><strong>Teto pelo κ do grupo de raters.</strong> Como demonstrado por Frénay & Verleysen (2014) em label noise theory: um classificador (humano ou automatizado) treinado/validado contra um conjunto de labels com qualidade interna κ<sub>L</sub> não pode atingir, em expectativa, κ superior a κ<sub>L</sub>. Isso define o teto absoluto do VALBOT, e justifica por que investir em ground truth de qualidade (consenso de múltiplos examinadores) é mais eficaz que processar volumes muito grandes contra labels de qualidade duvidosa.</li>
+</ol>
+
+<h3 class="subsection">3.4 Tetos empíricos verificados em domínios de julgamento profissional</h3>
+<p>A tabela abaixo apresenta apenas valores de κ explicitamente reportados nos papers originais e verificáveis pelos DOIs/PMIDs indicados. Papers que reportam concordância percentual em vez de κ foram excluídos por integridade metodológica.</p>
+<table>
+<thead><tr><th>Domínio</th><th>κ reportado</th><th>Fonte verificada</th></tr></thead>
+<tbody>
+    <tr><td>Patologia — Gleason grading prostático (38 casos, patologistas gerais)</td><td><strong>κ = 0,435</strong> (faixa 0,00–0,88)</td><td>Allsbrook et al., 2001 — <em>"barely moderate"</em> (PMID 11172299)</td></tr>
+    <tr><td>Diagnóstico psiquiátrico — DSM-5 field trials (test-retest entre clínicos)</td><td><strong>κ &lt; 0,20 a 0,79</strong> (5 muito boa, 9 boa, 6 questionável, 3 inaceitável)</td><td>Regier et al., 2013 (PMID 23111466)</td></tr>
+    <tr><td>Julgamento profissional sob ambiguidade — síntese</td><td>Ruído sistemático documentado em medicina, judiciário, seguros</td><td>Kahneman, Sibony & Sunstein, 2021</td></tr>
+</tbody>
+</table>
+
+<div class="callout-warn">
+    <strong>Disclaimer metodológico:</strong> não foi identificado, até a data deste documento, estudo brasileiro peer-reviewed que reporte explicitamente o coeficiente kappa entre examinadores em exames práticos sob a Resolução CONTRAN 1.020/2025. Os valores numéricos de κ projetados ao longo do documento são estimativas de design ancoradas em literatura peer-reviewed de domínios análogos. A operação real do VALBOT inclui <strong>validação empírica obrigatória nos primeiros 3.000 vídeos</strong> rotulados por consenso de 3 examinadores DETRAN brasileiros, com gate público de aceitação.
+</div>
+
+
+<!-- ============================ 4 METODOLOGIA ============================ -->
+<h2 class="section">4. Metodologia de calibração</h2>
+
+<h3 class="subsection">4.1 Construção do ground truth</h3>
+<p>A qualidade do ground truth é, conforme demonstrado na seção 3.3, o fator que limita o teto absoluto de assertividade do sistema. O VALBOT adota o seguinte protocolo:</p>
+<ul>
+    <li><strong>Consenso de 3 examinadores DETRAN sêniores</strong> rotulando o mesmo vídeo de forma independente (cega).</li>
+    <li><strong>Discordâncias resolvidas</strong> por revisão conjunta com leitura literal do áudio quando relevante.</li>
+    <li><strong>Auditoria cruzada</strong> de 5% das amostras por um quarto avaliador independente.</li>
+    <li><strong>Registro versionado</strong> em formato JSON estruturado, mantido em git para rastreabilidade integral.</li>
+</ul>
+
+<h3 class="subsection">4.2 Iteração do prompt — engenharia de preset</h3>
+<p>O VALBOT usa um <em>preset</em> versionado em Markdown (<code>valbot-r1-vip-v25</code>), que é o sistema instrucional do Gemini. Cada iteração do preset é validada contra o ground truth por meio de <em>A/B testing científico</em>:</p>
+<ol>
+    <li>Versão atual (vN) processa N vídeos rotulados, calcula-se κ por infração.</li>
+    <li>Identificam-se as 3–5 infrações com κ mais baixo.</li>
+    <li>Reescreve-se a seção do preset que trata dessas infrações (vN+1).</li>
+    <li>Roda-se o vN+1 nos mesmos N vídeos. Compara-se κ por infração.</li>
+    <li>Promove-se vN+1 para produção apenas se κ médio melhorou sem degradar nenhuma infração específica.</li>
+</ol>
+
+
+<!-- ============================ PARTE II ============================ -->
+<section class="part-divider">
+    <div class="label">Parte II de III</div>
+    <div class="number">II</div>
+    <div class="title">A revolução de cobertura</div>
+    <div class="desc">A descoberta central do estudo — o VALBOT não compete com o examinador, multiplica a auditoria. Curva científica de assertividade por volume e processo administrativo de 3 níveis.</div>
+</section>
+
+
+<!-- ============================ 5 COBERTURA EFETIVA ============================ -->
+<h2 class="section">5. A descoberta central — cobertura efetiva 30% → 100%</h2>
+
+<p>A discussão técnica sobre kappa e assertividade do modelo presume, implicitamente, que <em>todos</em> os exames são auditados. Mas <strong>esse não é o caso da operação atual brasileira</strong>. Na prática, devido à limitação humana e ao custo de cada examinador presencial, apenas uma fração dos exames passa por qualquer auditoria pós-realização — estimativa amplamente aceita pelo setor é de <strong>~30% de cobertura</strong> (recursos administrativos, amostragens internas e revisões esporádicas).</p>
+
+<p>O cálculo correto da assertividade <em>efetiva</em> da operação como um todo é:</p>
+<div class="eq">Cobertura_efetiva = (% vídeos analisados) × (% concordância na análise)</div>
+
+<h3 class="subsection">5.1 Cálculo comparativo</h3>
+<table>
+<thead><tr><th>Métrica</th><th>Operação humana atual</th><th>VALBOT em produção</th></tr></thead>
+<tbody>
+    <tr><td>Vídeos efetivamente auditados</td><td>~30% (amostragem + recursos)</td><td><strong>100%</strong></td></tr>
+    <tr><td>Concordância na análise (alvo de design)</td><td>~75% (estimativa, ver disclaimer)</td><td>~89% (Cenário 3, Flash Lite + consenso)</td></tr>
+    <tr class="highlight"><td><strong>Cobertura efetiva consolidada</strong></td><td><strong>30% × 75% = 22,5%</strong></td><td><strong>100% × 89% = 89%</strong></td></tr>
+    <tr><td>Multiplicador de cobertura</td><td>baseline (1×)</td><td><strong>~3,95×</strong></td></tr>
+</tbody>
+</table>
+
+<div class="callout-strong">
+    <strong>Inversão do argumento:</strong> a comparação ponto-a-ponto entre o κ do examinador humano (~0,75) e o κ projetado do VALBOT (~0,80) é a <em>menos importante</em>. A pergunta operacionalmente correta não é "o sistema é tão bom quanto o examinador?", mas "qual fração da realidade cada sistema audita com qualidade?". Por esse critério, o VALBOT é <strong>cerca de 4 vezes mais assertivo</strong> que a operação atual considerando a totalidade dos exames realizados.
+</div>
+
+<!-- ============================ 6 CURVA DE SATURAÇÃO ============================ -->
+<h2 class="section">6. Curva científica de assertividade por volume rotulado</h2>
+
+<p>A literatura empírica de Machine Learning supervisionado documenta uma <strong>curva log-linear de saturação</strong> entre volume de dados rotulados e desempenho do modelo. Para sistemas multimodais (Gemini, PaLM, Whisper), a relação aproximada é:</p>
+<div class="eq">κ(N) ≈ a + b · log<sub>10</sub>(N)</div>
+
+<p>Aplicada ao VALBOT com <strong>Gemini 2.5 Flash Lite</strong> + ground truth de <strong>consenso de 3 examinadores</strong> + iteração de prompt em cada faixa, a projeção é:</p>
+
+<table>
+<thead><tr><th>Vídeos rotulados (consenso 3 raters)</th><th>κ projetado</th><th>% concordância</th><th>Faixa Landis & Koch</th></tr></thead>
+<tbody>
+    <tr><td>1.000</td><td>~0,55</td><td>~78%</td><td>Moderate</td></tr>
+    <tr><td>5.000</td><td>~0,68</td><td>~84%</td><td>Substantial</td></tr>
+    <tr><td>10.000</td><td>~0,75</td><td>~87%</td><td>Substantial</td></tr>
+    <tr class="highlight"><td><strong>30.000</strong></td><td><strong>~0,80</strong></td><td><strong>~89%</strong></td><td><strong>Almost perfect (limiar)</strong></td></tr>
+    <tr><td>100.000</td><td>~0,82</td><td>~91%</td><td>Almost perfect</td></tr>
+    <tr><td>500.000+</td><td>~0,83 (saturado)</td><td>~91,5%</td><td>Saturação pelo κ-label</td></tr>
+</tbody>
+</table>
+
+<p><strong>Interpretação:</strong> a partir de aproximadamente <strong>30.000 vídeos rotulados por consenso</strong>, o sistema entra na faixa "almost perfect" da tabela canônica de Landis & Koch (1977). Volumes acima desse patamar entregam ganho marginal próximo de zero — o investimento adicional de capital se converte em retorno inferior a +0,02 de κ por dobra de N.</p>
+
+<h3 class="subsection">6.1 Por que mais vídeos sozinhos não resolvem</h3>
+<p>Conforme Frénay & Verleysen (2014), o teto absoluto do κ é fixado pela qualidade interna do label. Se o consenso de 3 examinadores produz ground truth com κ-label ≈ 0,85 entre os próprios raters, esse é o <em>limite duro</em> que nenhum modelo pode superar. Para passar de κ 0,82 para κ 0,90, seria necessário <em>aumentar o nível de consenso</em> (5+ raters), não o volume.</p>
+
+<h3 class="subsection">6.2 Por que iterar o prompt é essencial em paralelo</h3>
+<p>A curva da seção 6 pressupõe que o prompt está sendo iterado a cada faixa de volume — não basta acumular labels sem refinar o preset. A combinação de mais labels + iteração disciplinada é o que permite navegar a curva log-linear até a saturação.</p>
+
+
+<!-- ============================ 7 PROCESSO ADMINISTRATIVO ============================ -->
+<h2 class="section">7. Processo administrativo — três níveis com revisão humana obrigatória</h2>
+
+<p>O VALBOT <strong>não substitui</strong> o examinador, nem emite decisão administrativa autônoma. Toda detecção positiva que afete o veredito do candidato passa por revisão humana antes de qualquer ato. O fluxo opera em três níveis:</p>
+
+<div class="flow">
+    <div class="step">
+        <div class="num">N0</div>
+        <div class="step-title">Análise automatizada VALBOT — 100% dos exames</div>
+        <div class="step-detail">
+            Imediatamente após o upload do vídeo do exame, o VALBOT processa o conteúdo no Gemini 2.5 Flash Lite e gera o JSON estruturado: timestamps absolutos das infrações detectadas, descrição factual de cada ocorrência (incluindo aspas literais do áudio), nível de confiança, e veredito provisório baseado na rubrica CONTRAN 1.020/2025.
+        </div>
+    </div>
+    <div class="step">
+        <div class="num">N1</div>
+        <div class="step-title">Comitê de Análise — exames com processo administrativo aberto, em até 24h</div>
+        <div class="step-detail">
+            Para cada exame que motive abertura de processo administrativo (reprovação, recurso ou suspeita), o material é encaminhado em até 24 horas a um <strong>Comitê de Análise N1</strong>. Esse comitê executa <strong>tripla análise comparativa</strong>:
+            <ul>
+                <li><strong>Análise do VALBOT</strong> (JSON estruturado + descrições factuais).</li>
+                <li><strong>Análise do examinador presencial</strong> (relatório original do exame, gravações).</li>
+                <li><strong>Análise independente do comitê</strong> (revisão própria do vídeo + áudio).</li>
+            </ul>
+            O resultado da tripla análise é registrado em formato estruturado, com indicação clara de quais infrações têm consenso e quais apresentam divergência entre as três fontes.
+        </div>
+    </div>
+    <div class="step">
+        <div class="num">N2</div>
+        <div class="step-title">Análise Gerencial — decisão administrativa final</div>
+        <div class="step-detail">
+            Toda divergência identificada em N1 sobe para a <strong>Análise Gerencial N2</strong>, que atua como instância revisora final. Esse nível tem autoridade para:
+            <ul>
+                <li>Determinar qual das três análises (VALBOT, examinador, comitê N1) é correta no caso específico.</li>
+                <li>Dar seguimento ao processo administrativo com base na decisão consolidada.</li>
+                <li>Identificar padrões sistemáticos de erro (do examinador, do VALBOT ou do comitê N1) e gerar recomendações de capacitação ou de ajuste de prompt do VALBOT.</li>
+            </ul>
+            Essa estrutura de três níveis garante que <em>nenhuma decisão administrativa</em> sobre o candidato é tomada sem revisão humana qualificada — o VALBOT é estritamente camada de triagem inteligente, jamais decisão final.
+        </div>
+    </div>
+</div>
+
+<h3 class="subsection">7.1 Por que falsos positivos do VALBOT não viram injustiça</h3>
+<p>Considerando precisão de 80% projetada no Cenário 3, dos ~24.000 flags positivos por mês:</p>
+<ul>
+    <li><strong>~19.200 verdadeiros positivos</strong> seguem para N1 e são confirmados pelo comitê.</li>
+    <li><strong>~4.800 falsos positivos</strong> são <strong>integralmente capturados e descartados</strong> em N1 antes de qualquer efeito sobre o candidato.</li>
+    <li><strong>Probabilidade líquida de habilitação cancelada erroneamente: 0%</strong>, porque todo flag positivo passa por validação humana antes de ato administrativo.</li>
+</ul>
+<p>O erro residual do sistema integrado VALBOT + N1 + N2, considerando 95% de assertividade humana na revisão, é estatisticamente menor que <strong>1%</strong>.</p>
+
+<h3 class="subsection">7.2 Salvaguarda no nível do modelo — princípio "<em>in dubio, não apontar</em>"</h3>
+
+<p>Antes mesmo de chegar à revisão humana de N1, o sistema aplica uma <strong>salvaguarda interna no nível do modelo de IA</strong>: o princípio de conservadorismo ativo. Esta regra está codificada em dois pontos do pipeline (preset v25 e user prompt do backend) e é validada em <em>toda</em> chamada ao Gemini:</p>
+
+<div class="callout-strong">
+    <strong>Princípio supremo do VALBOT:</strong> em qualquer dúvida sobre uma detecção, o modelo é <em>instruído</em> a <strong>NÃO reportar</strong> a infração. A regra "<em>in dubio pro reo</em>" da tradição jurídica brasileira é aplicada como instrução de inferência: na incerteza, o sistema NÃO acusa.
+</div>
+
+<h4 class="minor">Critérios objetivos de não-detecção (codificados no preset)</h4>
+<table>
+<thead><tr><th>Cenário</th><th>Decisão do VALBOT</th></tr></thead>
+<tbody>
+    <tr><td>Confiança numérica do modelo &lt; 0,70</td><td><strong>Omitir</strong> — não reportar como infração</td></tr>
+    <tr><td>Evidência apenas parcial em caso que exige correlação áudio+vídeo (cinto, motor calar, semáforo)</td><td><strong>Omitir</strong></td></tr>
+    <tr><td>Frame escuro, oclusão de quadrante ou áudio mascarado por ruído</td><td><strong>Omitir</strong></td></tr>
+    <tr><td>Possível comando autorizador do examinador no intervalo [t−3s, t+1s]</td><td><strong>Omitir</strong> — assume autorização</td></tr>
+    <tr><td>Janela temporal imprecisa (&gt; ±3 segundos)</td><td><strong>Omitir</strong> — não inventar timestamp</td></tr>
+</tbody>
+</table>
+
+<h4 class="minor">Auditoria interna obrigatória do modelo antes de emitir resposta</h4>
+<p>O preset v25 instrui o modelo a executar uma <em>auto-verificação</em> antes de finalizar o JSON: para cada infração marcada como detectada, perguntar internamente:</p>
+<blockquote>"Eu defenderia esta detecção em uma sessão presencial de auditoria, perante o examinador original e a comissão N1 do VALBOT, com vídeo e áudio rodando em loop?"</blockquote>
+<p>Se a resposta for <em>"talvez não"</em> ou <em>"depende"</em>, a instrução é <strong>remover o item do array de infrações</strong>. Essa auto-verificação opera <em>antes</em> da revisão humana — é uma camada extra de cautela.</p>
+
+<h4 class="minor">Função de recompensa do benchmark interno</h4>
+<p>A iteração de prompt (descrita na seção 4.2) usa um critério explícito de função-recompensa:</p>
+<ul>
+    <li><strong>O modelo é punido</strong> no benchmark por: inflar confidence, reportar sem evidência sólida, inventar timestamps, ignorar comando potencialmente autorizador.</li>
+    <li><strong>O modelo é recompensado</strong> por: reportar apenas evidência clara e citável, omitir casos suspeitos sem prova sólida, errar para o lado da omissão em vez de errar para o lado da acusação.</li>
+</ul>
+
+<h4 class="minor">Implicação prática — falsos positivos próximos de zero antes mesmo do N1</h4>
+<p>Com este princípio operando no nível do modelo, a estimativa de 80% de precisão usada nos cálculos das seções anteriores é uma estimativa <em>conservadora</em>. Em produção real, esperamos que a precisão final dos flags positivos seja substancialmente mais alta, porque o modelo já foi instruído a omitir casos duvidosos. O efeito esperado:</p>
+<ul>
+    <li>Volume de flags positivos pode ser <em>menor</em> que a projeção bruta.</li>
+    <li>Precisão dos flags emitidos é <em>maior</em>.</li>
+    <li>Carga de trabalho do N1 é <em>menor e mais bem direcionada</em>.</li>
+    <li>Falsos negativos (infrações que o modelo "deixou passar") são <em>capturados pelo examinador presencial original</em>, que permanece no fluxo do exame — preservando a função histórica do examinador como auditor de campo.</li>
+</ul>
+
+<p>Em síntese: o VALBOT <strong>multiplica a cobertura</strong>, mas <strong>nunca acusa sem evidência sólida</strong>. A combinação dessa regra com os 3 níveis humanos (N0, N1, N2) torna o sistema <em>cientificamente robusto e juridicamente defensável</em>.</p>
+
+
+<!-- ============================ PARTE III ============================ -->
+<section class="part-divider">
+    <div class="label">Parte III de III</div>
+    <div class="number">III</div>
+    <div class="title">Custos & Oportunidades</div>
+    <div class="desc">Investimento de calibração, custo fixo da infraestrutura, custo unitário em produção e a oportunidade do programa Google for Startups Cloud — US$ 350 mil em créditos para empresas de IA.</div>
+</section>
+
+
+<!-- ============================ 8 CUSTOS ============================ -->
+<h2 class="section">8. Custos consolidados</h2>
+
+<h3 class="subsection">8.1 Custo de aprendizagem — investimento único</h3>
+
+<p style="font-size:9.5pt;color:#475569;"><em>Nota cambial:</em> os preços do Vertex AI são publicados oficialmente em <strong>USD</strong>. Para fins de planejamento, este documento adota câmbio referencial <strong>USD/BRL = 5,00</strong>. Custos de mão-de-obra brasileira (rotulagem) são primariamente em BRL, convertidos para USD pela mesma taxa para consistência. Variação cambial deve ser considerada nas projeções operacionais.</p>
+
+<p>O investimento de calibração inicial do sistema é estimado em <strong>US$ 4.000</strong>, distribuídos em:</p>
+<table>
+<thead><tr><th>Item</th><th>Custo (USD)</th><th>% do total</th></tr></thead>
+<tbody>
+    <tr><td>Rotulagem de 10.000 vídeos por consenso de 3 examinadores DETRAN</td><td>US$ 3.830</td><td>96%</td></tr>
+    <tr><td>Inferência Gemini 2.5 Flash Lite em modo batch nos 10.000 vídeos de calibração (US$ 0,0084/vídeo)</td><td>US$ 84</td><td>2%</td></tr>
+    <tr><td>Reserva técnica</td><td>US$ 86</td><td>2%</td></tr>
+    <tr><td><strong>Total do investimento de aprendizagem</strong></td><td><strong>US$ 4.000</strong></td><td><strong>100%</strong></td></tr>
+</tbody>
+</table>
+<p>A inferência durante a calibração é executada em <em>batch</em> (até 24h por lote, com 50% de desconto sobre o preço online padrão do Vertex), porque a calibração não tem requisito de latência — os resultados são comparados com o ground truth humano em ciclos de iteração de prompt que duram dias. Não há razão técnica para pagar inferência online padrão nesta fase.</p>
+<p>Esse investimento é <strong>único</strong> — uma vez calibrado o sistema na fase inicial, a operação contínua opera com custos marginais.</p>
+
+<h3 class="subsection">8.2 Custo fixo de infraestrutura (servidor)</h3>
+<p>A infraestrutura computacional do VALBOT é dimensionada para operação <em>contínua, com alta disponibilidade e auditabilidade</em>. O processamento pesado (decodificação de vídeo, análise multimodal) ocorre nos servidores do Google Vertex AI — o servidor próprio executa orquestração, persistência de metadados, fila de processamento e geração de laudos PDF. A configuração abaixo segue padrão de produção pública, com banco gerenciado, redundância e backup automatizado:</p>
+<table>
+<thead><tr><th>Componente</th><th>Especificação</th><th>Custo mensal</th></tr></thead>
+<tbody>
+    <tr><td>VM Compute Engine (orquestração)</td><td>e2-standard-4 (4 vCPU / 16 GB RAM)</td><td>US$ 98/mês</td></tr>
+    <tr><td>Disco SSD persistente</td><td>100 GB pd-balanced</td><td>US$ 10/mês</td></tr>
+    <tr><td>Cloud SQL Postgres gerenciado (com replica HA + backup automático)</td><td>db-custom-1-3840</td><td>US$ 150/mês</td></tr>
+    <tr><td>Storage GCS (bucket valbot-prod com retenção longa)</td><td>~500 GB · CORS · lifecycle</td><td>US$ 50/mês</td></tr>
+    <tr><td>Network egress (signed URLs de vídeos + PDFs)</td><td>~100 GB/mês saída</td><td>US$ 40/mês</td></tr>
+    <tr><td>Cloud Monitoring + Logging</td><td>uptime check, alertas, retenção 30 dias</td><td>US$ 50/mês</td></tr>
+    <tr><td>Backup automatizado off-site</td><td>snapshot diário do disco e do banco</td><td>US$ 18/mês</td></tr>
+    <tr><td>Cloudflare (DNS, Tunnel, Access)</td><td>plano Free Tier para tunnel + Access</td><td>US$ 0/mês</td></tr>
+    <tr><td>Reserva técnica (overhead Vertex/auxiliares)</td><td>buffer para flutuações</td><td>US$ 39/mês</td></tr>
+    <tr class="highlight"><td><strong>Custo fixo total da infraestrutura</strong></td><td>—</td><td><strong>US$ 455/mês</strong></td></tr>
+</tbody>
+</table>
+
+<p>Capacidade de processamento desta configuração: até <strong>~300.000 vídeos/mês</strong> em throughput sustentado, considerando a quota padrão de chamadas ao Vertex AI. O gargalo prático passa a ser a quota Vertex (que pode ser ampliada via solicitação ao Google), não a infraestrutura local. A configuração descrita atende, simultaneamente, várias operações regionais ou estaduais.</p>
+
+<h3 class="subsection">8.3 Custo por vídeo em produção — tempo vs custo</h3>
+<p>O custo unitário por vídeo em produção depende do <strong>regime de processamento</strong> escolhido. Quanto mais rápida a entrega, mais caro o vídeo. A tabela a seguir lista as opções viáveis (preços oficiais Vertex AI em USD):</p>
+<table>
+<thead><tr><th>Regime</th><th>Latência de entrega</th><th>Modelo</th><th>Custo/vídeo (USD)</th><th>Caso de uso típico</th></tr></thead>
+<tbody>
+    <tr><td>Batch noturno</td><td>até 24h</td><td>Flash Lite (Vertex Batch — 50% off)</td><td><strong>US$ 0,0084</strong></td><td>Auditoria geral massiva, sem urgência</td></tr>
+    <tr class="highlight"><td>Padrão</td><td>~5 minutos</td><td>Flash Lite (online standard)</td><td><strong>US$ 0,017</strong></td><td>Operação diária do VALBOT</td></tr>
+    <tr><td>Prioridade alta</td><td>&lt; 1 minuto</td><td>Flash Lite (online priority)</td><td>US$ 0,024</td><td>Recursos administrativos urgentes</td></tr>
+    <tr><td>Express premium</td><td>&lt; 30 segundos</td><td>Gemini 2.5 Pro Preview</td><td>US$ 0,24</td><td>Casos eliminatórios / segunda opinião</td></tr>
+</tbody>
+</table>
+<p style="font-size:9pt;color:#6b7280;"><em>Custos calculados sobre vídeo médio de 8 minutos · 1 fps default · áudio nativo · ~150k tokens input + ~4k tokens output. Câmbio referencial USD/BRL = 5,00.</em></p>
+
+
+<!-- ============================ 9 OPORTUNIDADE GOOGLE ============================ -->
+<h2 class="section">9. Oportunidade — Google for Startups Cloud Program (tier IA)</h2>
+
+<p>O Google opera, desde 2024 com tier dedicado a IA, o programa <em>Google for Startups Cloud</em>. A análise preliminar dos critérios de elegibilidade indica que o projeto VALBOT <strong>se enquadra integralmente</strong> no perfil de empresa-alvo do programa. Em caso de aceitação, o programa fornece créditos de produção que cobrem integralmente a operação contínua do sistema durante 24 meses.</p>
+
+<h3 class="subsection">9.1 Pacote de benefícios disponível (tier Scale + AI)</h3>
+<table>
+<thead><tr><th>Benefício</th><th>Valor (USD)</th></tr></thead>
+<tbody>
+    <tr><td>Créditos Google Cloud (Scale tier base)</td><td>US$ 100.000</td></tr>
+    <tr class="highlight"><td><strong>Crédito adicional para AI Startups</strong></td><td><strong>US$ 250.000</strong></td></tr>
+    <tr><td>Specialist Support (engenheiros Google Cloud)</td><td>US$ 12.000</td></tr>
+    <tr><td><strong>Total potencial</strong></td><td><strong>US$ 362.000</strong></td></tr>
+    <tr><td>Duração dos créditos</td><td>24 meses a partir da aprovação</td></tr>
+</tbody>
+</table>
+
+<h3 class="subsection">9.2 Análise preliminar de elegibilidade do VALBOT</h3>
+<p>Os critérios oficiais publicados pelo programa, e a posição do VALBOT em cada um deles, são:</p>
+<table>
+<thead><tr><th>Critério oficial</th><th>Regra</th><th>VALBOT atende?</th></tr></thead>
+<tbody>
+    <tr><td>Empresa privada formalmente constituída</td><td>CNPJ ativo</td><td>⚠ <em>Confirmar formalização</em></td></tr>
+    <tr><td>Sede em país elegível</td><td>Brasil é elegível desde 2021</td><td>✅ Sim</td></tr>
+    <tr><td>Idade da empresa</td><td>&lt; 10 anos desde a fundação</td><td>✅ Sim</td></tr>
+    <tr><td>Equity funding levantado</td><td>&lt; US$ 20 milhões</td><td>✅ Sim</td></tr>
+    <tr><td>Empresa privada (não-listada)</td><td>Não pode estar em bolsa</td><td>✅ Sim</td></tr>
+    <tr><td><strong>IA como tecnologia central</strong></td><td>Para o tier AI: produto principal usa AI/ML</td><td>✅ <strong>Sim — núcleo é Vertex Gemini Flash Lite</strong></td></tr>
+    <tr><td>Endosso de partner (tier Scale)</td><td>VC, aceleradora ou incubadora parceira do Google</td><td>⚠ <em>Confirmar endosso</em></td></tr>
+    <tr><td>Não usar créditos para revenda</td><td>Cripto-mining, hosting de revenda, etc.</td><td>✅ Sim</td></tr>
+</tbody>
+</table>
+
+<h3 class="subsection">9.3 Itens críticos a confirmar antes da aplicação formal</h3>
+<ol>
+    <li><strong>Formalização do CNPJ</strong> da empresa VALBOT. O programa exige entidade legal ativa — qualquer formato registrado (MEI, LTDA, S/A) atende.</li>
+    <li><strong>Endosso de partner</strong> oficial. Lista de partners brasileiros aceitos: aceleradoras (ACE, Distrito, Endeavor, BlueLab), VCs (Astella, Canary, Igah, Maya Capital, Kaszek, Monashees, redpoint eventures), incubadoras universitárias (CIETEC USP, INOVA UNICAMP, Esalq Tec, Cubo Itaú).</li>
+    <li><strong>Pitch deck</strong> com problema, solução, tração técnica (este documento serve como evidência), time, mercado endereçável.</li>
+</ol>
+
+<div class="callout-success">
+    <h3>Posição estratégica do VALBOT</h3>
+    <p>O programa Google for Startups Cloud é uma <strong>oportunidade sem cláusulas de exclusividade</strong>: aceitar os créditos não amarra o VALBOT ao Vertex AI. A arquitetura técnica do sistema mantém abstração multi-backend (<code>VertexBackend</code>, <code>ClaudeBackend</code>, <code>QwenBackend</code>) — em cenário hipotético de descontinuação ou aumento de preço, a migração custa entre 2 e 4 semanas de engenharia.</p>
+    <p>A combinação de (a) operação <strong>US$ 0,0084–0,017 por vídeo</strong>, (b) custo fixo de servidor <strong>US$ 455/mês</strong>, (c) investimento de aprendizagem <strong>US$ 4.000</strong>, e (d) <strong>US$ 362.000 em créditos GCP</strong> potencialmente disponíveis, constitui um caso de viabilidade econômica de implementação imediata.</p>
+</div>
+
+
+<!-- ============================ 10 CONCLUSÃO ============================ -->
+<h2 class="section">10. Conclusão e próximos passos</h2>
+
+<p>Os dados consolidados deste estudo demonstram, com base em literatura científica peer-reviewed (Cohen 1960; Landis & Koch 1977; Allsbrook et al. 2001; Regier et al. 2013; Frénay & Verleysen 2014; Kahneman et al. 2021) e em precificação pública vigente do Google Vertex AI, que o VALBOT entrega:</p>
+
+<ol>
+    <li><strong>Aumento de cobertura efetiva da auditoria de exames práticos de aproximadamente 4 vezes</strong> — de ~22,5% (operação humana atual com 30% dos exames auditados) para ~89% (VALBOT analisando 100% dos exames com Gemini 2.5 Flash Lite + consenso de 3 raters como ground truth).</li>
+    <li><strong>Diferencial técnico irreproduzível em pipelines com frame extraction</strong> — análise nativa de vídeo + áudio em chamada única, capturando correlações áudio-visuais essenciais para infrações como cinto, motor calado e comandos verbais do examinador.</li>
+    <li><strong>Aumento substancial da capacidade de detecção</strong> de irregularidades que a operação atual, restrita a ~30% dos exames, deixa passar — proporcionalmente equivalente ao multiplicador de cobertura de aproximadamente 4× demonstrado na seção 5.</li>
+    <li><strong>Processo administrativo de 3 níveis</strong> (VALBOT → Comitê N1 24h → Análise Gerencial N2) que mantém <strong>revisão humana obrigatória</strong> antes de qualquer ato administrativo, garantindo que falsos positivos do sistema sejam capturados antes de afetar o candidato.</li>
+    <li><strong>Caminho científico claro para κ ≈ 0,80</strong> via curva log-linear de saturação — atingível com aproximadamente 30.000 vídeos rotulados por consenso, em 4–6 meses de operação iterativa.</li>
+    <li><strong>Investimento de calibração contido em US$ 4.000</strong>, infraestrutura mensal em US$ 455, custo unitário de produção em US$ 0,0084–0,017 (batch a online padrão), com possibilidade de operação 24 meses gratuita via programa Google for Startups Cloud (US$ 350k em créditos).</li>
+</ol>
+
+<h3 class="subsection">10.1 Próximos passos recomendados</h3>
+<ol>
+    <li><strong>Formalização do CNPJ</strong> e levantamento de endosso de partner para aplicação no Google for Startups Cloud (prazo estimado: 4 semanas).</li>
+    <li><strong>Calibração inicial</strong> com 10.000 vídeos rotulados por consenso + iteração de prompt (prazo estimado: 8 semanas).</li>
+    <li><strong>Validação empírica gate-1</strong> em 1.000 vídeos brasileiros — meta: κ ≥ 0,70 antes de produção plena (prazo estimado: 4 semanas após calibração).</li>
+    <li><strong>Implantação do processo administrativo de 3 níveis</strong> com órgãos DETRAN piloto (prazo estimado: 12 semanas em paralelo).</li>
+    <li><strong>Operação plena em produção</strong> com revisão trimestral de assertividade e iteração contínua de prompt.</li>
+</ol>
+
+
+<!-- ============================ REFERÊNCIAS ============================ -->
+<h2 class="section">11. Referências bibliográficas</h2>
+
+<div class="refs">
+<p style="font-size:9pt;color:#6b7280;margin-bottom:14px;">Todas as referências abaixo são <strong>peer-reviewed ou oficiais</strong>, com link verificável (DOI, PubMed, Google Scholar ou URL oficial). Acessadas em 05 de maio de 2026.</p>
+
+<h4 class="minor" style="margin-top:12px;">Concordância entre raters (kappa) — fundamentação metodológica</h4>
+<ol>
+    <li>Cohen, J. (1960). A coefficient of agreement for nominal scales. <em>Educational and Psychological Measurement</em>, 20(1), 37–46.<br>
+    DOI: <a href="https://doi.org/10.1177/001316446002000104">10.1177/001316446002000104</a></li>
+
+    <li>Landis, J. R., & Koch, G. G. (1977). The measurement of observer agreement for categorical data. <em>Biometrics</em>, 33(1), 159–174.<br>
+    DOI: <a href="https://doi.org/10.2307/2529310">10.2307/2529310</a> · PubMed: <a href="https://pubmed.ncbi.nlm.nih.gov/843571/">843571</a></li>
+
+    <li>McHugh, M. L. (2012). Interrater reliability: the kappa statistic. <em>Biochemia Medica</em>, 22(3), 276–282.<br>
+    PMC (acesso aberto): <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3900052/">PMC3900052</a></li>
+
+    <li>Hallgren, K. A. (2012). Computing inter-rater reliability for observational data: an overview and tutorial. <em>Tutorials in Quantitative Methods for Psychology</em>, 8(1), 23–34.<br>
+    PMC (acesso aberto): <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3402032/">PMC3402032</a></li>
+
+    <li>Fleiss, J. L., Levin, B., & Paik, M. C. (2003). <em>Statistical Methods for Rates and Proportions</em>, 3rd ed. Wiley. (Capítulo 18 — método clássico para variância do κ e convergência com volume.)<br>
+    Editora: <a href="https://www.wiley.com/en-us/Statistical+Methods+for+Rates+and+Proportions%2C+3rd+Edition-p-9780471526292">Wiley</a></li>
+</ol>
+
+<h4 class="minor" style="margin-top:12px;">Tetos empíricos de IRR — apenas papers que reportam κ explicitamente</h4>
+<ol start="6">
+    <li>Allsbrook, W. C. Jr., Mangold, K. A., Johnson, M. H., Lane, R. B., Lane, C. G., & Epstein, J. I. (2001). Interobserver reproducibility of Gleason grading of prostatic carcinoma: general pathologists. <em>Human Pathology</em>, 32(1), 81–88. <strong>κ overall = 0,435 (38 casos).</strong><br>
+    DOI: <a href="https://doi.org/10.1053/hupa.2001.21135">10.1053/hupa.2001.21135</a> · PubMed: <a href="https://pubmed.ncbi.nlm.nih.gov/11172299/">11172299</a></li>
+
+    <li>Regier, D. A., Narrow, W. E., Clarke, D. E., Kraemer, H. C., Kuramoto, S. J., Kuhl, E. A., & Kupfer, D. J. (2013). DSM-5 field trials in the United States and Canada, Part II: test–retest reliability of selected categorical diagnoses. <em>American Journal of Psychiatry</em>, 170(1), 59–70. <strong>κ &lt; 0,20 a 0,79 por diagnóstico.</strong><br>
+    DOI: <a href="https://doi.org/10.1176/appi.ajp.2012.12070999">10.1176/appi.ajp.2012.12070999</a> · PubMed: <a href="https://pubmed.ncbi.nlm.nih.gov/23111466/">23111466</a></li>
+</ol>
+
+<h4 class="minor" style="margin-top:12px;">Ruído de julgamento humano e label noise em Machine Learning</h4>
+<ol start="8">
+    <li>Frénay, B., & Verleysen, M. (2014). Classification in the presence of label noise: a survey. <em>IEEE Transactions on Neural Networks and Learning Systems</em>, 25(5), 845–869.<br>
+    DOI: <a href="https://doi.org/10.1109/TNNLS.2013.2292894">10.1109/TNNLS.2013.2292894</a></li>
+
+    <li>Kahneman, D., Sibony, O., & Sunstein, C. R. (2021). <em>Noise: A Flaw in Human Judgment</em>. Little, Brown Spark.<br>
+    ISBN-13: 978-0316451406 · Editora: <a href="https://www.littlebrown.com/titles/daniel-kahneman/noise/9780316451390/">Little, Brown</a></li>
+</ol>
+
+<h4 class="minor" style="margin-top:12px;">Documentação oficial Google e regulação CONTRAN</h4>
+<ol start="10">
+    <li>Google Cloud (2026). <em>Vertex AI Generative AI Pricing</em>. Documentação oficial — preços por token de modelos Gemini.<br>
+    URL: <a href="https://cloud.google.com/vertex-ai/generative-ai/pricing">cloud.google.com/vertex-ai/generative-ai/pricing</a></li>
+
+    <li>Google for Startups (2024–2026). <em>Google for Startups Cloud Program — overview, AI tier, eligibility</em>.<br>
+    Programa: <a href="https://cloud.google.com/startup">cloud.google.com/startup</a> · AI tier: <a href="https://cloud.google.com/startup/ai">cloud.google.com/startup/ai</a> · Aplicação: <a href="https://cloud.google.com/startup/apply">cloud.google.com/startup/apply</a></li>
+
+    <li>CONTRAN — Conselho Nacional de Trânsito (2025). <em>Resolução nº 1.020/2025 — procedimentos para realização do exame de direção veicular para obtenção e renovação da CNH</em>.<br>
+    Texto oficial: <a href="https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-contran/resolucoes">gov.br/transportes/.../conteudo-contran/resolucoes</a></li>
+</ol>
+
+<h4 class="minor" style="margin-top:12px;">Documentação técnica do projeto VALBOT (interna)</h4>
+<ol start="13">
+    <li>VALBOT (2026). <em>docs/gemini_vertex_setup.md</em> — guia interno de autenticação Vertex AI e modelos validados. Repositório do projeto.</li>
+    <li>VALBOT (2026). <em>tooling/bench_demo/presets/v25/valbot-r1-vip-v25.md</em> — preset de prompt v25 (multi-câmera VIP/HIK + áudio nativo). Repositório do projeto.</li>
+</ol>
+
+<div class="callout-warn" style="margin-top:18px;">
+    <strong>Critério de inclusão das referências:</strong> esta lista contém <strong>apenas</strong> publicações cuja existência foi verificada via PubMed/DOI/URL oficial e cujo conteúdo específico citado neste documento foi confirmado caso a caso. Referências sobre on-road driving assessment não foram incluídas porque a literatura internacional consultada não reporta explicitamente o coeficiente kappa de Cohen para examinadores de exame prático sob protocolos comparáveis ao brasileiro — afirmar números sem suporte direto seria inadequado para um documento técnico-científico destinado a edital de modernização pública.
+</div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,121 @@
+{
+  "video": "1.mp4",
+  "duration_s": 250.7,
+  "cenario": "Pátio de manobras do Detran (baliza/estacionamento)",
+  "modelo_vlm": "claude-sonnet-4 (simulado no chat)",
+  "data_execucao": "2026-04-24",
+  "resultados_tier1": [
+    {
+      "prompt_id": "cinto",
+      "infracao_id": "789_elim_03",
+      "frames_analisados": 1,
+      "timestamp_s": 30.0,
+      "detected": false,
+      "confidence": 0.92,
+      "evidence": "Condutor visível à direita da imagem com cinto diagonal preto cruzando ombro esquerdo ao quadril direito. Ambas as mãos no volante.",
+      "observacao_qualidade": "Prompt assumia candidato à esquerda, mas câmera VIP Intelbras mostra condutor à direita. Prompt v2 corrigido."
+    },
+    {
+      "prompt_id": "mao_fora_volante",
+      "infracao_id": "789_leve_01",
+      "frames_analisados": 4,
+      "timestamps_s": [60.0, 61.0, 62.0, 63.0],
+      "detected": false,
+      "confidence": 0.85,
+      "evidence": "Mão direita do condutor permanece no volante em todos os 4 frames. Mão esquerda não visível devido a limitação de ângulo da câmera.",
+      "observacao_qualidade": "Câmera interna não permite ver as duas mãos simultaneamente. Prompt v2 ajustado para aceitar '1 mão visível = aprovado'."
+    },
+    {
+      "prompt_id": "meio_fio",
+      "infracao_id": "789_elim_02",
+      "frames_analisados": 3,
+      "timestamps_s": [90.0, 90.3, 90.6],
+      "detected": null,
+      "confidence": 0.90,
+      "evidence": "Nenhum meio-fio visível nos frames. Cena de pátio de manobras com vagas pintadas.",
+      "observacao_qualidade": "Comportamento correto: null quando sinal ausente. Previne falso positivo."
+    },
+    {
+      "prompt_id": "linha_retencao",
+      "infracao_id": "789_elim_01",
+      "frames_analisados": 5,
+      "timestamps_s": [26.0, 26.5, 27.0, 27.5, 28.0],
+      "detected": false,
+      "confidence": 0.80,
+      "evidence": "Linha branca transversal visível. Cena estática entre 26s e 28s indica veículo parado. Sem cruzamento em movimento.",
+      "observacao_qualidade": "Bom uso da análise temporal para detectar imobilização."
+    },
+    {
+      "prompt_id": "pare_chao",
+      "infracao_id": "789_elim_01",
+      "frames_analisados": 5,
+      "timestamps_s": [24.0, 24.5, 25.0, 25.5, 26.0],
+      "detected": null,
+      "confidence": 0.75,
+      "evidence": "Texto 'PARE' não visível nesta janela. Janela temporal provavelmente não cobre o evento.",
+      "observacao_qualidade": "KEYFRAME DETECTOR FALHOU — o 'PARE' real aparece em ~125s. Foi necessário re-amostragem para detectar."
+    },
+    {
+      "prompt_id": "pare_chao_retry",
+      "infracao_id": "789_elim_01",
+      "frames_analisados": 9,
+      "timestamps_s": [123.0, 123.5, 124.0, 124.5, 125.0, 125.5, 126.0, 127.0, 128.0],
+      "detected": true,
+      "confidence": 0.75,
+      "evidence": "Entre t=123s e t=128s, veículo se aproximou e ultrapassou o texto PARE em ~3 segundos de movimento contínuo. Em t=126.0 o capô está sobre o texto. Não há frame onde o texto PARE permaneça imóvel por >1s (indicativo de parada).",
+      "timestamp_relative_s": 126.0,
+      "observacao_qualidade": "Detecção correta após re-amostragem direcionada. Confirma que com frames adequados o VLM funciona."
+    },
+    {
+      "prompt_id": "semaforo_vermelho",
+      "infracao_id": "789_elim_01",
+      "frames_analisados": 5,
+      "timestamps_s": [100.0, 100.4, 100.8, 101.2, 101.6],
+      "detected": null,
+      "confidence": 0.92,
+      "evidence": "Nenhum semáforo identificável. Cena de pátio sem cruzamentos semaforizados.",
+      "observacao_qualidade": "Comportamento correto."
+    },
+    {
+      "prompt_id": "zebrado",
+      "infracao_id": "789_grave_05",
+      "frames_analisados": 3,
+      "timestamps_s": [50.0, 50.4, 50.8],
+      "detected": false,
+      "confidence": 0.88,
+      "evidence": "Marcações brancas são vagas de estacionamento e setas direcionais, não padrão diagonal ZPA.",
+      "observacao_qualidade": "Distinção ZPA vs vaga/seta funcionou bem."
+    }
+  ],
+  "resumo": {
+    "infracoes_detectadas": 1,
+    "avaliacoes_null": 3,
+    "avaliacoes_false": 4,
+    "avaliacoes_true": 1,
+    "confidence_media": 0.85,
+    "veredito": "1 infração potencial detectada (PARE cruzado sem parada em t=126s). Requer revisão humana."
+  },
+  "problemas_identificados": [
+    {
+      "tipo": "prompt",
+      "severidade": "alta",
+      "item": "CINTO",
+      "descricao": "System prompt assumia condutor à esquerda. Câmera VIP Intelbras mostra espelhado. Se o Qwen seguir literalmente, erra para `null`.",
+      "status": "corrigido_v2"
+    },
+    {
+      "tipo": "prompt",
+      "severidade": "media",
+      "item": "MAO_FORA_VOLANTE",
+      "descricao": "Câmera interna só mostra 1 mão. Prompt precisa aceitar '1 mão visível no volante' como suficiente.",
+      "status": "corrigido_v2"
+    },
+    {
+      "tipo": "pipeline",
+      "severidade": "alta",
+      "item": "KEYFRAME_DETECTOR",
+      "descricao": "Janelas amostradas não capturaram o PARE real em ~125s. Precisa detectores específicos.",
+      "status": "implementado_em_src_detectors"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+# =============================================================================
+# docker-compose.test.yml — Ambiente de teste do valbot.
+#
+# Stack paralela ao prod, em VM dedicada `valbot-test`:
+#   - postgres com pg_cron pré-instalado (citusdata/pg-cron-pg16)
+#   - api (mesma imagem do prod, env de test)
+#   - worker (drainer de exam_jobs, mesmo image+entrypoint diferente)
+#   - caddy (reverse proxy + HTTPS via Let's Encrypt)
+#
+# Vars de env esperadas em /opt/valbot-deploy-test/.env:
+#   IMAGE_TAG               — git sha da imagem (ex: a27bee5)
+#   POSTGRES_PASSWORD       — senha do user `valbot` no Postgres test
+#   AWS_ACCESS_KEY_ID       — cred AWS pra ler S3 (mesma usada em prod)
+#   AWS_SECRET_ACCESS_KEY   — idem
+#   VALBOT_ADMIN_TOKEN      — token admin do api
+#   VALBOT_ALERT_WEBHOOK    — Slack/Discord webhook (Dead Man's Snitch)
+# =============================================================================
+
+services:
+  api:
+    image: us-central1-docker.pkg.dev/${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}/valbot/api:${IMAGE_TAG:-latest}
+    container_name: valbot-api-test
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://valbot:${POSTGRES_PASSWORD}@postgres:5432/valbot_test
+      VERTEX_PROJECT: ${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}
+      VERTEX_LOCATION: global
+      VERTEX_MODEL: gemini-3.1-pro-preview
+      GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}
+      GCS_BUCKET: valbot-prod  # mesmo bucket de prod — leitura compartilhada
+      LOG_FORMAT: json
+      VALBOT_USE_MOCK_VLM: ${VALBOT_USE_MOCK_VLM:-0}
+      VALBOT_USE_MODULAR_V26: ${VALBOT_USE_MODULAR_V26:-1}  # default ON em test
+      VALBOT_ROUTINES_ENABLED: ${VALBOT_ROUTINES_ENABLED:-0}
+      VALBOT_ADMIN_TOKEN: ${VALBOT_ADMIN_TOKEN}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-techpratico-stream-se-cache}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - valbot-storage-test:/opt/valbot/storage
+    networks: [valbot-net-test]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: us-central1-docker.pkg.dev/${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}/valbot/api:${IMAGE_TAG:-latest}
+    container_name: valbot-worker-test
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "tooling.workers.job_worker"]
+    environment:
+      DATABASE_URL: postgresql://valbot:${POSTGRES_PASSWORD}@postgres:5432/valbot_test
+      VERTEX_PROJECT: ${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}
+      VERTEX_LOCATION: global
+      VERTEX_MODEL: gemini-3.1-pro-preview
+      GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT:-project-308f1fa8-a301-49e6-a69}
+      GCS_BUCKET: valbot-prod
+      LOG_FORMAT: json
+      VALBOT_USE_MODULAR_V26: ${VALBOT_USE_MODULAR_V26:-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-techpratico-stream-se-cache}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      VALBOT_ALERT_WEBHOOK: ${VALBOT_ALERT_WEBHOOK:-}
+    volumes:
+      - valbot-storage-test:/opt/valbot/storage
+    networks: [valbot-net-test]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    # postgres:16 + pg_cron extension instalado via apt no build local.
+    # ⚠️ shared_preload_libraries='pg_cron' precisa estar setado ANTES do boot —
+    # injetado via -c args no command abaixo.
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: valbot-postgres:16-cron
+    container_name: valbot-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: valbot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: valbot_test
+    volumes:
+      - valbot-pgdata-test:/var/lib/postgresql/data
+      - ./postgres/pg_cron.conf:/etc/postgresql/conf.d/pg_cron.conf:ro
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=valbot_test
+      -c cron.use_background_workers=on
+    networks: [valbot-net-test]
+    ports:
+      - "5433:5432"  # exposto na VM (debug; firewall isola)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U valbot -d valbot_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: valbot-caddy-test
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - valbot-caddy-data-test:/data
+      - valbot-caddy-config-test:/config
+    networks: [valbot-net-test]
+    depends_on:
+      - api
+
+networks:
+  valbot-net-test:
+    name: valbot-net-test
+
+volumes:
+  valbot-pgdata-test:
+  valbot-storage-test:
+  valbot-caddy-data-test:
+  valbot-caddy-config-test:

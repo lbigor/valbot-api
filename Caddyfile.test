@@ -1,0 +1,21 @@
+# Caddyfile do ambiente de teste do valbot.
+# Aceita HTTP only (sem HTTPS) — IP direto, sem DNS configurado ainda.
+# Quando setarmos DNS (test.valbot.com.br), trocar pelo bloco HTTPS abaixo.
+
+:80 {
+	# / e /api/* → api container
+	reverse_proxy api:80
+
+	# Header pra distinguir ambiente nos logs
+	header X-Valbot-Env "test"
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# Quando setar DNS, trocar pelo abaixo:
+# test.valbot.com.br {
+#	reverse_proxy api:80
+# }

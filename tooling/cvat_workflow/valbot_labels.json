@@ -1,0 +1,106 @@
+[
+  {
+    "name": "person-driver",
+    "color": "#33ddff",
+    "type": "rectangle",
+    "attributes": [
+      {"name": "seatbelt_visible", "mutable": true, "input_type": "select",
+       "default_value": "unknown", "values": ["yes", "no", "unknown"]},
+      {"name": "hands_on_wheel", "mutable": true, "input_type": "select",
+       "default_value": "both", "values": ["both", "one", "none", "unknown"]}
+    ]
+  },
+  {
+    "name": "person-examiner",
+    "color": "#3355ff",
+    "type": "rectangle",
+    "attributes": [
+      {"name": "seatbelt_visible", "mutable": true, "input_type": "select",
+       "default_value": "unknown", "values": ["yes", "no", "unknown"]}
+    ]
+  },
+  {
+    "name": "person-pedestrian",
+    "color": "#ff33cc",
+    "type": "rectangle",
+    "attributes": [
+      {"name": "crossing", "mutable": true, "input_type": "checkbox",
+       "default_value": "false"}
+    ]
+  },
+  {"name": "vehicle-car",        "color": "#ffcc00", "type": "rectangle", "attributes": []},
+  {"name": "vehicle-motorcycle", "color": "#ff8800", "type": "rectangle", "attributes": []},
+  {"name": "vehicle-bus-truck",  "color": "#cc8833", "type": "rectangle", "attributes": []},
+  {
+    "name": "traffic-light",
+    "color": "#33ff55",
+    "type": "rectangle",
+    "attributes": [
+      {"name": "state", "mutable": true, "input_type": "select",
+       "default_value": "unknown",
+       "values": ["red", "yellow", "green", "off", "unknown"]}
+    ]
+  },
+  {
+    "name": "sign-pare",
+    "color": "#ff3333",
+    "type": "rectangle",
+    "attributes": []
+  },
+  {"name": "sign-yield-r2",      "color": "#ff5555", "type": "rectangle", "attributes": []},
+  {"name": "sign-speed-r19",     "color": "#bb33ff", "type": "rectangle",
+   "attributes": [{"name": "speed_kmh", "mutable": false, "input_type": "number",
+                   "default_value": "40", "values": ["10", "200", "5"]}]},
+  {"name": "sign-no-turn",       "color": "#aa3399", "type": "rectangle", "attributes": []},
+  {"name": "sign-no-overtake",   "color": "#cc5588", "type": "rectangle", "attributes": []},
+
+  {"name": "road-pare-text",     "color": "#ff0055", "type": "rectangle", "attributes": []},
+  {"name": "road-stop-line",     "color": "#ff6699", "type": "rectangle", "attributes": []},
+  {"name": "road-crosswalk",     "color": "#ff00aa", "type": "polygon",   "attributes": []},
+  {"name": "road-zebra-canalization", "color": "#cc0088", "type": "polygon", "attributes": []},
+  {"name": "road-curb-left",     "color": "#885577", "type": "polyline",  "attributes": []},
+  {"name": "road-lane-yellow-solid",     "color": "#ffaa00", "type": "polyline", "attributes": []},
+  {"name": "road-lane-yellow-dashed",    "color": "#ffcc55", "type": "polyline", "attributes": []},
+
+  {"name": "event-vehicle-stopped", "color": "#00aaff", "type": "tag", "attributes": []},
+  {"name": "event-hand-off-wheel",  "color": "#aa00ff", "type": "tag", "attributes": []},
+  {"name": "event-signal-on",
+   "color": "#ffff00", "type": "tag",
+   "attributes": [{"name": "side", "mutable": false, "input_type": "select",
+                   "default_value": "left", "values": ["left", "right"]}]},
+  {"name": "event-mirror-check",   "color": "#55cccc", "type": "tag", "attributes": []},
+  {"name": "event-gear-shift",     "color": "#777777", "type": "tag", "attributes": []},
+  {"name": "event-buzzer",         "color": "#ffaa55", "type": "tag", "attributes": []},
+  {"name": "event-examiner-comment","color":"#5588cc", "type": "tag",
+   "attributes": [{"name": "tone", "mutable": false, "input_type": "select",
+                   "default_value": "neutral",
+                   "values": ["neutral", "inadequate", "threatening", "contradictory"]}]},
+
+  {"name": "infraction-no-seatbelt",          "color": "#ff0000", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_elim_03"}]},
+  {"name": "infraction-curb-hit",             "color": "#ff1111", "type": "rectangle",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_elim_02"}]},
+  {"name": "infraction-stop-line-ignored",    "color": "#ff2222", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_elim_01"}]},
+  {"name": "infraction-pare-ignored",         "color": "#ff3333", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_elim_01"}]},
+  {"name": "infraction-red-light-crossed",    "color": "#ff4444", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_elim_01"}]},
+  {"name": "infraction-zebra-crossed",        "color": "#ff5555", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_grave_05"}]},
+  {"name": "infraction-no-signal-lane-change","color": "#ff6666", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_grave_05"}]},
+  {"name": "infraction-hand-off-wheel",       "color": "#ff7777", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "789_leve_01"}]},
+  {"name": "infraction-examiner-misconduct",  "color": "#8800aa", "type": "tag",
+   "attributes": [{"name": "id", "mutable": false, "input_type": "text",
+                   "default_value": "audit_examinador"}]}
+]

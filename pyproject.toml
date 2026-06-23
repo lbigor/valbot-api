@@ -1,0 +1,171 @@
+# =============================================================================
+# pyproject.toml — config consolidada de ruff + mypy + pytest.
+# Sem [build-system] porque o valbot não é um package distribuído.
+# =============================================================================
+
+[project]
+name = "valbot"
+version = "0.1.0"
+description = "Auditoria Inteligente de Exames Práticos — pipeline VLM CONTRAN 1.020/2025"
+requires-python = ">=3.12"
+authors = [{ name = "Igor Lima" }]
+license = { text = "MIT" }
+
+# -----------------------------------------------------------------------------
+# Ruff — lint + formatador (substitui black + isort + flake8 + pyupgrade).
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length    = 100
+target-version = "py312"
+# bench_demo é codigo de pesquisa experimental — varios sketches com mocks,
+# imports duplicados, prints de debug. Nao bloqueia merge.
+extend-exclude = [
+    ".venv", "node_modules", "dist", "build",
+    "storage", "manual/extracted", "tooling/bench_demo",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # bugbear (anti-patterns)
+    "C4",   # comprehensions
+    "UP",   # pyupgrade (modern python idioms)
+    "N",    # pep8-naming
+    "SIM",  # simplify
+    "RUF",  # ruff specific
+    "T20",  # bans print() (use logging)
+    "S",    # bandit security
+]
+ignore = [
+    "E501",   # line length (formatador cuida)
+    "S101",   # assert allowed in tests
+    "T201",   # print allowed em scripts (api_stub usa)
+    "B008",   # function-call-in-default-argument — padrao IDIOMATICO do FastAPI
+              # (Depends()/Query()/Body() no default); recomendacao oficial FastAPI.
+    # Falsos positivos em codebase em portugues — acentos/cedilhas em strings,
+    # docstrings e comentarios. Ruff acha "ambiguo" porque parece com caracteres
+    # latinos visualmente semelhantes; pra nos e o idioma natural do projeto.
+    "RUF001", # ambiguous-unicode-character-string (e.g. 'a' acentuado)
+    "RUF002", # ambiguous-unicode-character-docstring
+    "RUF003", # ambiguous-unicode-character-comment
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*"          = ["S101", "S105", "S106", "S110", "SIM105"]   # asserts + senhas hardcoded + try-except-pass de cleanup ok em tests
+"tooling/api_stub/*" = ["T201", "B904", "E731"]  # print() dev; B904/E731 adiados → TODO(lint-debt PR-B)
+"src/scripts/*"    = ["T201"]
+"**/__init__.py"   = ["F401"]                    # re-exports OK
+# Scripts utilitarios de tooling (nao prod). TODO(lint-debt PR-B):
+# atacar S110/S112/S608/N806 caso a caso quando estabilizarmos cada script.
+"tooling/*"        = [
+    "S110",  # try-except-pass — comum em scripts de batch (skip-on-error)
+    "S112",  # try-except-continue — idem
+    "S608",  # hardcoded SQL — scripts de migracao, valores nao vem de input externo
+    "S603",  # subprocess sem shell=True — scripts chamam ffmpeg/ffprobe locais
+    "S607",  # start-process-with-partial-path — idem (ffmpeg do PATH)
+    "S104",  # hardcoded bind 0.0.0.0 — dev servers
+    "S310",  # urllib URL aberta — scripts internos com URL hardcoded
+    "S324",  # hashlib md5/sha1 — usado pra fingerprint, nao crypto
+    "S311",  # random nao-crypto — scripts probabilisticos
+    "S108",  # hardcoded /tmp — scripts batch
+    "S314",  # xml.etree — scripts internos, XML nao vem de fora
+    "N806",  # variable should be lowercase — scripts usam SIGLAS_UPPER comuns
+    "N814",  # camelcase imported as constant — alias estilo `Path as _P`
+    "RUF012", # mutable class default — scripts ad-hoc, nao reusados
+    "RUF046", # unnecessary int() cast — scripts numericos OK
+    "RUF059", # unused unpacked variable — scripts ad-hoc
+    "E702", "E701", "E741", # multi-statement / ambiguous var name `l`
+    "F841",  # unused local var — scripts em desenvolvimento
+    "F821",  # undefined name — alguns scripts tem helpers carregados em runtime
+    "B007", "B008", "B018", "B905", # bugbear em scripts ad-hoc
+    "SIM102", "SIM105", "SIM108", "SIM115", "SIM117", "SIM118", "SIM103",
+    "UP042", "UP045",
+    "RUF005", "RUF015", "RUF022", "RUF100",
+    "C408", "C420",
+]
+# Debt de prod (backend/src/deploy) adiada caso-a-caso → TODO(lint-debt PR-B).
+# S608: SQL por f-string com nome de tabela/coluna interno (valor NAO vem de input externo).
+# S603/S310/S110/S112: subprocess/urllib/try-except internos e controlados.
+"backend/api/deps.py"               = ["SIM102"]
+"backend/engines/excecoes.py"       = ["B007"]
+"backend/ingestion/resiliencia.py"  = ["S608", "S310", "UP047"]
+"backend/compliance/repositorio.py" = ["S608"]
+"backend/dashboard/metrics.py"      = ["S608"]
+"backend/matriz/seed_mbedv.py"      = ["S608"]
+"backend/workflow/ordens.py"        = ["S608"]
+"deploy/video_retention.py"         = ["S603", "S112", "SIM115"]
+"src/analysis/layout_discovery.py"  = ["S110"]
+
+[tool.ruff.format]
+quote-style    = "double"
+indent-style   = "space"
+line-ending    = "lf"
+
+# -----------------------------------------------------------------------------
+# Mypy — type checking gradual.
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version          = "3.12"
+strict_equality         = true
+warn_unused_configs     = true
+warn_redundant_casts    = true
+warn_unreachable        = true
+no_implicit_optional    = true
+check_untyped_defs      = true
+disallow_untyped_defs   = false   # gradual — abrir aos poucos
+disallow_incomplete_defs = false
+ignore_missing_imports  = true    # Vertex SDK não tem stubs
+exclude                 = ["storage/", "manual/extracted/", "tooling/bench_demo/runs/"]
+
+[[tool.mypy.overrides]]
+module = ["vertexai.*", "google.cloud.*", "weasyprint.*"]
+ignore_missing_imports = true
+
+# -----------------------------------------------------------------------------
+# Pytest
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion          = "7.0"
+testpaths           = ["tests"]
+python_files        = ["test_*.py", "*_test.py"]
+python_classes      = ["Test*"]
+python_functions    = ["test_*"]
+# tests/e2e/* sao testes Playwright contra valbot.com.br em prod —
+# precisam navegador instalado + URL acessivel, nao rodam no CI lint-test.
+# Rodar manualmente: pytest tests/e2e/ --override-ini="addopts="
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+    "--ignore=tests/e2e",
+]
+markers = [
+    "slow: testes que demoram >5s",
+    "vertex: testes que chamam Vertex de verdade (custam $$)",
+    "e2e: testes end-to-end com servidor real",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:google.*",
+    "ignore::PendingDeprecationWarning",
+]
+
+# -----------------------------------------------------------------------------
+# Coverage
+# -----------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = ["src", "tooling/api_stub"]
+omit   = ["*/__init__.py", "*/tests/*"]
+
+[tool.coverage.report]
+fail_under = 60   # gate inicial — subir para 75 em 3 meses
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

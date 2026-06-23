@@ -1,0 +1,297 @@
+/* AdminUsers — estilo seguindo CSS-vars do tema Valbot (var(--panel/line/muted/accent)).
+   Fallbacks alinhados à paleta do AppLayout (#0B1120 / #1F2937 / #9CA3AF / #06B6D4). */
+
+.au-panel {
+  background: var(--panel, #0B1120);
+  border: 1px solid var(--line, #1F2937);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ---- Tabela ---- */
+.au-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.au-table thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #9CA3AF);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line, #1F2937);
+  background: rgba(255, 255, 255, 0.02);
+}
+.au-table tbody td {
+  padding: 12px 16px;
+  border-top: 1px solid var(--line, #1F2937);
+  vertical-align: middle;
+}
+.au-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.au-table tbody tr[data-revoked="1"] {
+  opacity: 0.62;
+}
+.au-email {
+  font-weight: 500;
+}
+.au-muted {
+  color: var(--muted, #9CA3AF);
+}
+
+/* ---- Badges papel ---- */
+.au-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #1F2937);
+  color: var(--muted, #9CA3AF);
+}
+.au-badge[data-role="admin"] {
+  color: #F59E0B;
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+}
+.au-badge[data-role="auditor"] {
+  color: var(--accent, #06B6D4);
+  border-color: rgba(6, 182, 212, 0.35);
+  background: rgba(6, 182, 212, 0.1);
+}
+.au-badge[data-role="supervisor"] {
+  color: #A78BFA;
+  border-color: rgba(167, 139, 250, 0.35);
+  background: rgba(167, 139, 250, 0.1);
+}
+
+/* ---- Status ---- */
+.au-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.au-status .au-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.au-status[data-revoked="0"] {
+  color: #10B981;
+}
+.au-status[data-revoked="0"] .au-dot {
+  background: #10B981;
+}
+.au-status[data-revoked="1"] {
+  color: #EF4444;
+}
+.au-status[data-revoked="1"] .au-dot {
+  background: #EF4444;
+}
+
+/* ---- Ações ---- */
+.au-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+/* ---- Botões ---- */
+.au-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent, #06B6D4);
+  color: #06121A;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.au-btn:hover {
+  opacity: 0.9;
+}
+.au-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.au-btn-ghost {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line, #1F2937);
+  background: transparent;
+  color: var(--muted, #9CA3AF);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.au-btn-ghost:hover {
+  color: var(--text, #F9FAFB);
+  border-color: var(--muted, #9CA3AF);
+}
+.au-btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.au-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted, #9CA3AF);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.au-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text, #F9FAFB);
+}
+.au-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.au-icon-btn.au-danger:hover {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+.au-icon-btn.au-ok:hover {
+  color: #10B981;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+/* ---- Modal ---- */
+.au-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 16, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+.au-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel, #0B1120);
+  border: 1px solid var(--line, #1F2937);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+.au-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.au-modal-head h3 {
+  font-size: 16px;
+  font-weight: 700;
+}
+.au-sub {
+  font-size: 13px;
+  color: var(--muted, #9CA3AF);
+  margin-bottom: 16px;
+}
+.au-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.au-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #9CA3AF);
+}
+.au-field input,
+.au-field select {
+  height: 38px;
+  padding: 0 12px;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line, #1F2937);
+  background: var(--bg, #111827);
+  color: var(--text, #F9FAFB);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.au-field input:focus,
+.au-field select:focus {
+  border-color: var(--accent, #06B6D4);
+}
+.au-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+.au-err {
+  font-size: 12px;
+  color: #EF4444;
+  margin-bottom: 12px;
+}
+
+/* ---- Senha temporária ---- */
+.au-temp {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--accent, #06B6D4);
+  background: rgba(6, 182, 212, 0.08);
+  margin-bottom: 16px;
+}
+.au-temp code {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text, #F9FAFB);
+  word-break: break-all;
+}
+
+/* ---- Toast ---- */
+.au-toast {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--line, #1F2937);
+}
+.au-toast[data-kind="ok"] {
+  color: #10B981;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+}
+.au-toast[data-kind="err"] {
+  color: #EF4444;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* monospace helper (alinha com a classe .mono usada nas demais telas) */
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}

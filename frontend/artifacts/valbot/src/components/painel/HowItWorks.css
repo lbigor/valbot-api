@@ -1,0 +1,57 @@
+/* ---------------- HOW IT WORKS (instruction strip) ---------------- */
+.howto {
+  flex-shrink: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding: 13px 16px 15px;
+}
+.howto-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  font-size: 14.5px; font-weight: 700; color: var(--text);
+  margin: 0 0 11px 0; letter-spacing: .2px;
+  background: none; border: 0; padding: 2px 2px; cursor: pointer; text-align: left;
+  font-family: inherit;
+}
+.howto-head:hover { color: var(--accent); }
+.howto-chev { transition: transform .2s ease; color: var(--muted); flex-shrink: 0; }
+.howto-collapsed .howto-head { margin-bottom: 0; }
+.howto-collapsed .howto-chev { transform: rotate(-90deg); }
+.howto-hide {
+  margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted);
+  letter-spacing: .2px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
+}
+.howto-head:hover .howto-hide { color: var(--accent); border-color: var(--accent); }
+.howto-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.howto-card {
+  display: flex; align-items: flex-start; gap: 13px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+}
+.howto-ic {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: grid; place-items: center; flex-shrink: 0;
+  box-shadow: 0 2px 9px rgba(0,0,0,.22);
+}
+.howto-body { min-width: 0; }
+.howto-t {
+  font-size: 13.5px; font-weight: 700; color: var(--text);
+  display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;
+  text-wrap: pretty;
+}
+.howto-n { color: var(--faint); font-weight: 700; flex-shrink: 0; }
+.howto-d {
+  font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  text-wrap: pretty;
+}
+@media (max-width: 920px) { .howto-grid { grid-template-columns: 1fr; } }
+@media (max-height: 760px) {
+  .howto { padding: 10px 16px 12px; }
+  .howto-head { margin-bottom: 8px; font-size: 13.5px; }
+  .howto-card { padding: 10px 13px; }
+}

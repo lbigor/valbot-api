@@ -1,0 +1,136 @@
+# =============================================================================
+# .gitignore — Valbot
+# Proteção primária: NUNCA commit secrets, credenciais, arquivos de ambiente,
+# vídeos pessoais ou builds. Cada bloco aqui já evitou um incidente real.
+# =============================================================================
+
+# --- Secrets / credenciais (CRÍTICO — auditado por gitleaks no pre-commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*-credentials.json
+*service-account*.json
+.sankhya-slack-bot-token
+secrets/
+.secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+*.egg
+.python-version
+build/
+dist/
+
+# --- Node / pnpm / Vite ---
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/install-state.gz
+.next/
+.nuxt/
+.vuepress/dist
+.cache/
+.parcel-cache/
+.vite/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# --- Storage / dados de runtime (reconstruíveis) ---
+storage/uploads/
+storage/analyses/
+storage/analyses_demo/
+storage/videos/
+storage/videos_compressed/
+storage/training/
+storage/audio_extracted/
+storage/test_videos/
+storage/.cache/
+storage/apresentacoes/
+manual/extracted/raw/
+manual/source_pdfs/
+
+# --- Bench / outputs ad-hoc ---
+tooling/bench_demo/runs/
+tooling/bench_demo/sample_videos/
+tmp/
+
+# --- IDE / OS ---
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+.vscode/.ropeproject
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Docker / Compose dev overrides ---
+docker-compose.override.yml
+docker-compose.dev.yml
+.docker/
+
+# --- Logs ---
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Backups ---
+*.bak
+*.orig
+*.swp
+*~
+
+# --- Claude Code / scratchpads ---
+.claude/
+.aider*
+
+# --- Output artifacts grandes ---
+*.pdf
+!docs/**/*.pdf
+!frontend/**/*.pdf
+!configs/references/*.pdf
+*.mp4
+*.mov
+*.avi
+*.mkv
+!frontend/public/**/*.mp4
+
+# --- Coverage / lint outputs ---
+coverage/
+.nyc_output/
+.lint-cache/
+valbot-patches.tar.gz
+
+# Cópias de conflito do Finder/cloud-sync (ex.: "config 2.py")
+* [0-9].*
+* [0-9][0-9].*
+# AppleDouble / metadados macOS
+._*
+.DS_Store

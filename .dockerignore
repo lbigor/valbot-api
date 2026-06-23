@@ -1,0 +1,85 @@
+# Reduz contexto enviado pra Docker daemon — build rápido + imagem enxuta.
+
+# Scratch local (payloads/laudos gerados ad-hoc — contêm dados de candidatos)
+tmp/
+
+# VCS
+.git
+.github
+.gitignore
+.gitattributes
+.gitlab-ci.yml
+
+# Node
+**/node_modules
+**/.pnp
+**/.next
+**/dist
+**/.turbo
+**/.cache
+**/.parcel-cache
+**/.vite
+
+# Python
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv
+**/venv
+**/env
+**/.tox
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/htmlcov
+**/.coverage
+**/.python-version
+
+# Dados volumosos / efêmeros — reconstruíveis ou específicos do dev local
+storage/uploads/
+storage/analyses/
+storage/analyses_demo/
+storage/videos_compressed/
+storage/training/
+storage/audio_extracted/
+storage/apresentacoes/
+storage/test_videos/
+storage/.cache/
+manual/extracted/raw/
+manual/source_pdfs/
+
+# Bench / outputs ad-hoc
+tooling/bench_demo/runs/
+tooling/bench_demo/sample_videos/
+
+# Docs PDFs grandes
+docs/*.pdf
+docs/**/*.pdf
+
+# IDE / OS
+.idea
+.vscode/settings.json
+.vscode/launch.json
+.DS_Store
+Thumbs.db
+
+# Local secrets — NUNCA na imagem
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+.sankhya-slack-bot-token
+
+# Plans / scratchpads
+.claude/
+
+# Test / lint outputs
+coverage/
+.lint-cache/
+
+# Docker / Compose dev
+docker-compose.dev.yml
+docker-compose.override.yml

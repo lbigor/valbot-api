@@ -1,0 +1,126 @@
+{
+  "exame_id": "EX-2026-06-734652437",
+  "ano": 2026,
+  "mes": 6,
+  "emitido_em": "16/06/2026 17:36:42 (UTC-3)",
+  "tempo_processamento": "8 min 42 s",
+  "resolucao": "Resolução CONTRAN nº 1.020/2025",
+  "manual_mbedv": "MBEDV — Versão 01/02/2026",
+  "matriz_versao": "matriz-nacional-v1.2 (vigente em 13/06/2026)",
+  "modelo_ia": "val-deteccao-v1.0 (Gemini-2.5-pro)",
+  "modelo_comite": "val-comite-v1.0 (acionado às 17:30:18)",
+  "assinatura": "ICP-Brasil A1 — Valma Tecnologia Ltda. — válida",
+  "video_hash": "sha256:76fd9ed6219643b6aec05acf99297e37",
+
+  "candidato": {
+    "nome": "Maria Lucia dos Santos",
+    "cpf": "12398798700",
+    "renach": "SE031229034",
+    "processo": "734652437",
+    "categoria": "B",
+    "tipo_exame": "1ª Habilitação",
+    "tentativa": "2"
+  },
+  "examinador": {
+    "nome": "Ana Paula de Oliveira",
+    "matricula": "EX-DETRAN-SE-4521",
+    "comissao": "Comissão Examinadora SE-Aracaju-CTR-001",
+    "eh_preposto": false,
+    "historico_auditoria": "13 exames analisados nos últimos 30 dias — 2 com observações"
+  },
+  "veiculo": { "placa": "ABC-1D23", "modelo": "Chevrolet Onix 1.0", "ano": "2025", "duplo_comando": true },
+  "unidade": {
+    "nome": "CTR-SE Aracaju", "endereco": "Av. Tancredo Neves, s/n",
+    "codigo": "23ª Ciretran", "auto_escola": "CFC Detran SE-031"
+  },
+  "tempo": {
+    "data": "13/06/2026 (Sexta-feira)", "inicio": "14:32:08", "fim": "14:37:26",
+    "duracao": "05 min 18 s", "duracao_s": 318,
+    "trajeto": "Rota padrão CTR-SE Aracaju — circuito urbano R-04"
+  },
+
+  "resultado_oficial": {
+    "decisao": "REPROVADO",
+    "pontuacao": null,
+    "houve_interrupcao": true,
+    "houve_interrupcao_texto": "Inconclusivo — examinadora registrou tipificação de interrupção (Art. interrupção) às 02:29, mas o exame seguiu até 05:18",
+    "registrado_por": "Examinadora A*** P*** de O*** (EX-DETRAN-SE-4521)",
+    "registrado_em": "13/06/2026 14:37:31 (5 s após o fim do exame)",
+    "exame_prosseguiu": true
+  },
+  "anotacoes_tpa": [
+    { "tempo": "01:07", "ts_seconds": 67, "categoria": "IV - Faltas Leves", "texto": "Art. 169. Dirigir sem atenção ou sem os cuidados indispensáveis à segurança.", "pontos": 1 },
+    { "tempo": "01:11", "ts_seconds": 71, "categoria": "IV - Faltas Leves", "texto": "Art. 169. Dirigir sem atenção ou sem os cuidados indispensáveis à segurança.", "pontos": 1 },
+    { "tempo": "02:29", "ts_seconds": 149, "categoria": "I - Faltas Gravíssimas", "texto": "Possibilidade de interrupção do exame por imperícia recorrente ou instabilidade emocional. (texto integral conforme TPA)", "pontos": 0 }
+  ],
+
+  "resultado_calculado": {
+    "decisao": "REPROVADO",
+    "pontuacao": 7,
+    "limite": 10,
+    "evidencia_suficiente": true,
+    "validator_veredito": "ok",
+    "tem_audio": true,
+    "tem_telemetria": false,
+    "duracao_s": 318,
+    "layout": { "TL": "frontal", "TR": "lateral_direita", "BL": "interna", "BR": "traseira_esq", "confianca_layout": 0.92 }
+  },
+
+  "infracoes": [
+    {
+      "artigo_ctb": "Art. 169",
+      "severidade": "leve",
+      "pontos": 1,
+      "ts_seconds": 97,
+      "duracao_s": 12,
+      "camera_origem": "interna",
+      "canal_evidencia": "ambos",
+      "confidence": 0.72,
+      "requer_revisao_humana": true,
+      "ficha_mbedv": "MBEDV-FICHA-169",
+      "conduta_observada": "Candidata demonstrou desatenção e confusão em parada obrigatória, não compreendendo a direção a seguir.",
+      "evidencia_audio": "[Candidata parada, com expressão de confusão, não inicia a manobra solicitada] — Examinadora: \"Aqui para... Olha, pelo amor de Deus... Você vai pra esquerda\".",
+      "excecao_ficha_texto": "exceção para distração pontual sem impacto na condução",
+      "excecao_resultado": "descartada",
+      "fundamentacao_ctb": "CTB Art. 169: Dirigir sem atenção ou sem os cuidados indispensáveis à segurança — Infração: leve — Penalidade: multa."
+    },
+    {
+      "artigo_ctb": "Art. 193",
+      "severidade": "gravissima",
+      "pontos": 6,
+      "ts_seconds": 190,
+      "duracao_s": 3,
+      "camera_origem": "lateral_direita",
+      "canal_evidencia": "ambos",
+      "confidence": 0.94,
+      "requer_revisao_humana": false,
+      "ficha_mbedv": "MBEDV-FICHA-193",
+      "conduta_observada": "Veículo subiu na calçada/meio-fio durante conversão à esquerda.",
+      "evidencia_audio": "[Câmera lateral mostra o veículo se inclinando e o pneu direito subindo no meio-fio.] Examinadora afirma categoricamente: \"Aí, a gente já subiu na calçada\".",
+      "excecao_ficha_texto": "exceção para situações de emergência ou interferência de terceiros",
+      "excecao_resultado": "descartada",
+      "fundamentacao_ctb": "CTB Art. 193: Transitar com o veículo na calçada — Infração: gravíssima — Penalidade: multa (três vezes)."
+    }
+  ],
+
+  "observacoes_conduta": [
+    { "ts_seconds": 97, "categoria": "audio_examinador", "origem": "audio", "classificacao": "inadequado", "descricao": "Examinadora: \"Olha, pelo amor de Deus...\" — comentário potencialmente inadequado.", "transcricao_audio": "Olha, pelo amor de Deus... Você vai pra esquerda" },
+    { "ts_seconds": 8, "categoria": "Comportamento", "origem": "IA visão computacional", "classificacao": "neutro", "descricao": "Candidata ajustou retrovisor após início do exame (recomendado fazer antes)" },
+    { "ts_seconds": 135, "categoria": "Áudio examinador", "origem": "IA análise áudio", "classificacao": "adequado", "descricao": "Comentário de instrução clara — adequado" },
+    { "ts_seconds": 278, "categoria": "Trajetória", "origem": "IA análise trajetória", "classificacao": "neutro", "descricao": "Conversão à direita com leve atraso de sinalização — abaixo do limiar da ficha MBEDV" }
+  ],
+
+  "divergencia": {
+    "tipo": "4_enquadramento",
+    "concorda_resultado": true,
+    "artigos_oficiais": ["Art. 169"],
+    "artigos_calculados": ["Art. 169", "Art. 193"],
+    "subtipos": [
+      { "tipo": "1. Resultado", "aplicavel": "Não", "justificativa": "Ambos concordam: REPROVADO." },
+      { "tipo": "2. Pontuação", "aplicavel": "Sim", "justificativa": "Comissão não registrou pontuação suficiente para reprovação; IA calculou 7 pontos." },
+      { "tipo": "3. Infração", "aplicavel": "Sim", "justificativa": "Conjunto de infrações é diferente (Comissão: 2× Art. 169 + interrupção; IA: Art. 169 + Art. 193)." },
+      { "tipo": "4. Enquadramento", "aplicavel": "Sim — PRINCIPAL", "justificativa": "Conduta às 03:10 (subir na calçada) foi enquadrada de forma distinta pela Comissão (interrupção) e pela IA (Art. 193 gravíssima)." },
+      { "tipo": "5. Evidência insuficiente", "aplicavel": "Não", "justificativa": "Vídeo e áudio íntegros e analisáveis em toda a duração do exame." }
+    ]
+  }
+}

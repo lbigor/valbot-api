@@ -1,0 +1,351 @@
+/* Agendamento — scheduler de batch Gemini. CSS-vars no mesmo padrão das demais telas. */
+
+.ag-wrap {
+  padding: 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.ag-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.ag-subtitle {
+  color: var(--muted);
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+.ag-muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+.ag-hint {
+  margin-top: 16px;
+}
+
+/* Toast de feedback */
+.ag-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+}
+.ag-toast-ok {
+  background: rgba(16, 185, 129, 0.10);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.30);
+}
+.ag-toast-err {
+  background: rgba(239, 68, 68, 0.10);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.30);
+}
+
+/* Layout */
+.ag-grid-2 {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.ag-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Cards */
+.ag-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+.ag-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ag-card-head h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Form */
+.ag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ag-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.ag-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ag-field-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.ag-input {
+  background: var(--bg, #111827);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: inherit;
+  outline: none;
+  width: 100%;
+}
+.ag-input:focus {
+  border-color: var(--accent);
+}
+.mono,
+.ag-input.mono {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
+
+/* Segmented control (frequência / escopo) */
+.ag-segment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ag-seg-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.ag-seg-btn:hover {
+  color: inherit;
+  border-color: var(--accent);
+}
+.ag-seg-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Preview da cron */
+.ag-cron-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg, #0b1120);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.ag-cron-preview code {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+/* Toggle ativar/desativar */
+.ag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  transition: all 0.15s ease;
+}
+.ag-toggle-knob {
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--line);
+  position: relative;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.ag-toggle-knob::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+.ag-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ag-toggle.on .ag-toggle-knob {
+  background: var(--accent);
+}
+.ag-toggle.on .ag-toggle-knob::after {
+  transform: translateX(12px);
+}
+
+/* Botões */
+.ag-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.ag-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  transition: all 0.12s ease;
+}
+.ag-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ag-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.ag-btn-primary:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+.ag-btn-accent {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.ag-btn-ghost {
+  font-size: 12px;
+  padding: 6px 10px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.ag-btn-ghost:not(:disabled):hover {
+  color: inherit;
+  border-color: var(--accent);
+}
+
+/* Próxima execução / resumo */
+.ag-next {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ag-next-icon {
+  color: var(--accent);
+}
+.ag-next-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+.ag-next-sub {
+  font-size: 12px;
+}
+.ag-summary {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.ag-summary li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ag-summary li span {
+  color: var(--muted);
+}
+.ag-on {
+  color: #10b981;
+}
+.ag-off {
+  color: var(--muted);
+}
+
+/* Tabela de histórico */
+.ag-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.ag-table thead tr {
+  color: var(--muted);
+  text-align: left;
+  font-size: 11px;
+}
+.ag-table th,
+.ag-table td {
+  padding: 8px;
+}
+.ag-table th.r,
+.ag-table td.r {
+  text-align: right;
+}
+.ag-table tbody tr {
+  border-top: 1px solid var(--line);
+}
+.ag-empty {
+  padding: 14px 8px;
+  color: var(--muted);
+}
+
+/* Badge de status */
+.ag-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+}
+.ag-badge-ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.30);
+}
+.ag-badge-err {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.30);
+}
+.ag-badge-run {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.30);
+}
+
+@media (max-width: 880px) {
+  .ag-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,67 @@
+# =============================================================================
+# pre-commit hooks — rodam antes de cada commit. CI roda os mesmos via
+# `pre-commit run --all-files`.
+# Setup: pip install pre-commit && pre-commit install
+# =============================================================================
+repos:
+  # --- Ruff (lint + formato) — substitui black + isort + flake8 + pyupgrade ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # --- Mypy (type checking gradual) ---
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [pydantic, types-requests]
+        files: ^src/
+        args: [--config-file=pyproject.toml]
+
+  # --- Hooks gerais ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '^manual/extracted/.*\.md$'   # MD oficial CONTRAN tem trailing
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+        exclude: '^tooling/bench_demo/runs/'
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2000]
+        exclude: '^(manual/|tooling/bench_demo/presets/)'
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # --- Gitleaks — bloqueia commit com chave/token vazada ---
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # --- Frontend (eslint + prettier) ---
+  - repo: local
+    hooks:
+      - id: frontend-lint
+        name: eslint + prettier (frontend)
+        entry: bash -c 'cd frontend && pnpm --silent lint'
+        language: system
+        files: '^frontend/.*\.(ts|tsx|js|jsx)$'
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: frontend-typecheck
+        name: tsc --noEmit (frontend)
+        entry: bash -c 'cd frontend && pnpm --silent --filter @workspace/valbot typecheck'
+        language: system
+        files: '^frontend/.*\.(ts|tsx)$'
+        pass_filenames: false
+        stages: [pre-push]

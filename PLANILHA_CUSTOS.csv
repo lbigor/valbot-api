@@ -1,0 +1,48 @@
+Categoria,Item,Provider,Tokens_in,Tokens_out,Pricing_in_per_M_USD,Pricing_out_per_M_USD,Custo_1_video_USD,Custo_3_rodadas_USD,Custo_9_videos_3_rodadas_USD,Tempo_segundos
+1_Modelo,Gemini 2.5 Pro,Google,77000,2000,1.25,10.00,0.120,0.360,3.24,45
+1_Modelo,Gemini 3.1 Pro Preview,Google,77000,2000,2.00,12.00,0.180,0.540,4.86,75
+1_Modelo,GPT-5.5 (low-res),OpenAI,25000,2000,5.00,30.00,0.190,0.570,5.13,105
+1_Modelo,Claude Opus 4.7 (low-res),Anthropic,25000,2000,5.00,25.00,0.180,0.540,4.86,95
+1_Modelo,Qwen3-VL-235B-A22B,Alibaba,77000,2000,0.20,0.88,0.017,0.051,0.46,45
+1_Modelo,Nemotron-12B-VL,NVIDIA,77000,2000,0.20,0.60,0.017,0.051,0.46,35
+1_Modelo,Kimi K2.6,Moonshot,77000,2000,0.74,3.49,0.064,0.192,1.73,55
+1_Modelo,Ernie 4.5 VL 424B,Baidu,77000,2000,0.42,1.25,0.035,0.105,0.95,50
+1_Modelo,DeepSeek V3.2 (texto),DeepSeek,5000,2000,0.25,0.38,0.002,0.006,0.05,8
+TOTAL_BENCH,Soma 9 modelos x 1 video,,,,,,0.805,2.415,21.74,105
+2_Etapa,Sanity probe,,,,,,,,0.15,300
+2_Etapa,Peer-review prompt (3 LLMs),,,,,,,,0.29,180
+2_Etapa,Bench 9v x 9m x 3r,,,,,,,,21.74,1800
+2_Etapa,Judge consolidador (Gemini 2.5 Pro),,,,,,,,0.45,120
+2_Etapa,Buffer retries 5%,,,,,,,,1.10,
+2_Etapa,TOTAL DO BENCH,,,,,,,,23.73,2400
+3_Projecao_Escala,9 videos (bench inicial),,,,,,,,23.73,
+3_Projecao_Escala,30 videos (dataset minimo),,,,,,,,25.83,
+3_Projecao_Escala,50 videos + M1 LoRA Express,,,,,,,,57.83,
+3_Projecao_Escala,100 videos + M2 LoRA pleno,,,,,,,,82.83,
+3_Projecao_Escala,500 videos + M3 SFT full,,,,,,,,182.83,
+3_Projecao_Escala,1000 videos + M4 multi-task,,,,,,,,382.83,
+3_Projecao_Escala,5000 videos,,,,,,,,882.83,
+3_Projecao_Escala,10000 videos + M5 RLHF,,,,,,,,1782.83,
+3_Projecao_Escala,50000 videos,,,,,,,,4782.83,
+3_Projecao_Escala,100000 videos,,,,,,,,9782.83,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,9 videos / mes - bench,Fireworks,,,,,0.017,,0.15,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,100 videos / mes + M1 LoRA $30,Fireworks,,,,,0.025,,32.50,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,1000 videos / mes - M1 ativo,Fireworks,,,,,0.025,,25.00,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,10000 videos / mes + M3 SFT $80,Fireworks,,,,,0.025,,330.00,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,50000 videos / mes - M4 ativo,Fireworks,,,,,0.025,,1250.00,
+4_TCO_CenarioA_Qwen3-VL_FineTuned,100000 videos / mes + M5 RLHF $500,Fireworks,,,,,0.025,,3000.00,
+5_TCO_CenarioB_Gemini2.5Pro_FT,9 videos / mes - bench,Vertex_AI,,,,,0.120,,1.08,
+5_TCO_CenarioB_Gemini2.5Pro_FT,100 videos / mes + M1 LoRA $40,Vertex_AI,,,,,0.240,,64.00,
+5_TCO_CenarioB_Gemini2.5Pro_FT,1000 videos / mes - M1 ativo,Vertex_AI,,,,,0.240,,240.00,
+5_TCO_CenarioB_Gemini2.5Pro_FT,10000 videos / mes + M3 SFT $200,Vertex_AI,,,,,0.240,,2600.00,
+5_TCO_CenarioB_Gemini2.5Pro_FT,50000 videos / mes - M4 ativo,Vertex_AI,,,,,0.240,,12000.00,
+5_TCO_CenarioB_Gemini2.5Pro_FT,100000 videos / mes + M5 RLHF $500,Vertex_AI,,,,,0.240,,24500.00,
+6_TCO_CenarioC_Gemini3.1Pro_FT,9 videos / mes - bench,Vertex_AI,,,,,0.180,,1.62,
+6_TCO_CenarioC_Gemini3.1Pro_FT,100 videos / mes + M1 LoRA $50,Vertex_AI,,,,,0.360,,86.00,
+6_TCO_CenarioC_Gemini3.1Pro_FT,1000 videos / mes - M1 ativo,Vertex_AI,,,,,0.360,,360.00,
+6_TCO_CenarioC_Gemini3.1Pro_FT,10000 videos / mes + M3 SFT $300,Vertex_AI,,,,,0.360,,3900.00,
+6_TCO_CenarioC_Gemini3.1Pro_FT,50000 videos / mes - M4 ativo,Vertex_AI,,,,,0.360,,18000.00,
+6_TCO_CenarioC_Gemini3.1Pro_FT,100000 videos / mes + M5 RLHF $500,Vertex_AI,,,,,0.360,,36500.00,
+7_TCO_SelfHost,1x H100 24/7 (qualquer open-source),Vast.ai_RunPod,,,,,fixo,,1500.00_mes,
+7_TCO_SelfHost,Break-even Qwen3-VL serverless,Fireworks,,,,,calculado,,~60000_videos_mes,
+7_TCO_SelfHost,Break-even Gemini 2.5,Vertex_AI_proprietario,,,,,calculado,,nao_aplicavel,

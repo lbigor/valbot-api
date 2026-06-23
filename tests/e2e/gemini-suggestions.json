@@ -1,0 +1,347 @@
+{
+  "summary": "Proposta de 25 novos testes E2E focados em fluxos alternativos, edge cases, segurança, acessibilidade e integrações não cobertas pela suíte atual, priorizando interações com botões não testados e resiliência do client-side.",
+  "tests": [
+    {
+      "id": "TC-001",
+      "title": "Fluxo de Logout",
+      "priority": "P0",
+      "category": "auth",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Clicar no botão de logout (ícone de saída no canto inferior esquerdo)",
+        "Aguardar redirecionamento para a tela de login"
+      ],
+      "expected": "Sessão encerrada, token removido do storage e redirecionamento para /login",
+      "playwright_hint": "await page.locator('button:has(svg.logout-icon)').click(); await expect(page).toHaveURL(/.*login/);"
+    },
+    {
+      "id": "TC-002",
+      "title": "Expiração de Sessão (401 Unauthorized)",
+      "priority": "P0",
+      "category": "security",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Interceptar uma chamada de API (ex: /api/alertas) e forçar resposta 401",
+        "Aguardar reação da SPA"
+      ],
+      "expected": "Usuário deve ser deslogado automaticamente e ver um toast de 'Sessão expirada'",
+      "playwright_hint": "await page.route('**/api/**', route => route.fulfill({ status: 401 }));"
+    },
+    {
+      "id": "TC-003",
+      "title": "Responsividade: Menu Mobile",
+      "priority": "P1",
+      "category": "ui",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Alterar viewport para mobile (ex: 375x812)",
+        "Verificar se a sidebar está oculta",
+        "Clicar no menu hambúrguer"
+      ],
+      "expected": "Sidebar deve deslizar para a tela e permitir navegação",
+      "playwright_hint": "await page.setViewportSize({ width: 375, height: 812 }); await page.click('[aria-label=\"Abrir menu\"]');"
+    },
+    {
+      "id": "TC-004",
+      "title": "Busca Global: Estado Vazio",
+      "priority": "P1",
+      "category": "edge",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Clicar no input 'Buscar exames, alertas...' no topo",
+        "Digitar um termo inexistente (ex: 'XYZ999')",
+        "Pressionar Enter"
+      ],
+      "expected": "Dropdown ou página de resultados deve exibir 'Nenhum resultado encontrado'",
+      "playwright_hint": "await page.fill('input[type=\"search\"]', 'XYZ999'); await expect(page.locator('.search-empty-state')).toBeVisible();"
+    },
+    {
+      "id": "TC-005",
+      "title": "Dropdown de Notificações",
+      "priority": "P2",
+      "category": "ui",
+      "page": "global",
+      "preconditions": "Usuário logado, badge de notificação visível (4)",
+      "steps": [
+        "Clicar no ícone de sino no canto superior direito",
+        "Verificar abertura do popover"
+      ],
+      "expected": "Popover deve exibir a lista das 4 notificações mais recentes",
+      "playwright_hint": "await page.click('button:has(.notification-badge)'); await expect(page.locator('.notifications-popover')).toBeVisible();"
+    },
+    {
+      "id": "TC-006",
+      "title": "Validação de Email Inválido no Login",
+      "priority": "P1",
+      "category": "edge",
+      "page": "login",
+      "preconditions": "Usuário na tela de login",
+      "steps": [
+        "Digitar 'email_invalido' no campo EMAIL CORPORATIVO",
+        "Clicar em 'Acessar Painel'"
+      ],
+      "expected": "Formulário não deve ser submetido e deve exibir erro de validação de formato",
+      "playwright_hint": "await page.fill('input[type=\"email\"]', 'invalido'); await page.click('button:has-text(\"Acessar Painel\")'); await expect(page.locator(':text(\"E-mail inválido\")')).toBeVisible();"
+    },
+    {
+      "id": "TC-007",
+      "title": "Resiliência: Timeout na API de Login",
+      "priority": "P1",
+      "category": "integration",
+      "page": "login",
+      "preconditions": "Usuário na tela de login",
+      "steps": [
+        "Interceptar POST /api/login e adicionar delay de 15 segundos",
+        "Preencher credenciais e submeter",
+        "Aguardar timeout do client"
+      ],
+      "expected": "Botão deve mostrar estado de loading e, após o timeout, exibir toast de erro de conexão",
+      "playwright_hint": "await page.route('**/api/login', async route => { await new Promise(f => setTimeout(f, 15000)); route.abort('timedout'); });"
+    },
+    {
+      "id": "TC-008",
+      "title": "Modal de Envio de Novo Vídeo",
+      "priority": "P0",
+      "category": "ui",
+      "page": "videos",
+      "preconditions": "Usuário logado na página de Vídeos",
+      "steps": [
+        "Clicar no botão 'Enviar novo vídeo'",
+        "Verificar abertura do modal de upload"
+      ],
+      "expected": "Modal de drag & drop para upload de vídeo deve ser exibido",
+      "playwright_hint": "await page.click('button:has-text(\"Enviar novo vídeo\")'); await expect(page.locator('.upload-modal')).toBeVisible();"
+    },
+    {
+      "id": "TC-009",
+      "title": "Troca de Modelo de IA via Dropdown",
+      "priority": "P1",
+      "category": "integration",
+      "page": "videos",
+      "preconditions": "Usuário logado na página de Vídeos",
+      "steps": [
+        "Em um card de vídeo, clicar no dropdown 'Selecione uma IA'",
+        "Selecionar um modelo diferente na lista"
+      ],
+      "expected": "Deve disparar requisição para atualizar o modelo de bench e refletir a mudança na UI",
+      "playwright_hint": "await page.selectOption('.ai-model-select', { index: 1 }); await expect(page.locator('.toast-success')).toBeVisible();"
+    },
+    {
+      "id": "TC-010",
+      "title": "Toggle do Modo Debug",
+      "priority": "P2",
+      "category": "ui",
+      "page": "videos",
+      "preconditions": "Usuário logado na página de Vídeos",
+      "steps": [
+        "Clicar no botão 'Modo Debug' em um card de vídeo"
+      ],
+      "expected": "O botão deve mudar para estado ativo e o player (se aberto) deve renderizar bounding boxes",
+      "playwright_hint": "await page.click('button:has-text(\"Modo Debug\")'); await expect(page.locator('button:has-text(\"Modo Debug\")')).toHaveClass(/active/);"
+    },
+    {
+      "id": "TC-011",
+      "title": "Expansão de Detalhes do Alerta",
+      "priority": "P1",
+      "category": "ui",
+      "page": "alertas",
+      "preconditions": "Usuário logado na página de Alertas",
+      "steps": [
+        "Clicar na linha de um alerta na tabela (ex: AL-DEMO-004)"
+      ],
+      "expected": "A linha deve expandir (accordion) ou abrir um side-panel com os detalhes do alerta",
+      "playwright_hint": "await page.click('.alert-row:first-child'); await expect(page.locator('.alert-details-panel')).toBeVisible();"
+    },
+    {
+      "id": "TC-012",
+      "title": "Ação: Marcar Alerta como Resolvido",
+      "priority": "P0",
+      "category": "integration",
+      "page": "alertas",
+      "preconditions": "Usuário logado na página de Alertas",
+      "steps": [
+        "Clicar no botão 'Resolvido' na linha de um alerta pendente"
+      ],
+      "expected": "Deve disparar PATCH /api/alertas/{id} e atualizar o status visualmente na lista",
+      "playwright_hint": "await page.click('button:has-text(\"Resolvido\")'); await expect(page.locator('.alert-row:first-child .status')).toHaveText('Resolvido');"
+    },
+    {
+      "id": "TC-013",
+      "title": "Ação: Imprimir Relatório",
+      "priority": "P2",
+      "category": "ui",
+      "page": "relatorios",
+      "preconditions": "Usuário logado na página de Relatórios, com um relatório aberto",
+      "steps": [
+        "Clicar no botão 'Imprimir'"
+      ],
+      "expected": "Deve invocar window.print() (pode ser mockado no teste para verificar a chamada)",
+      "playwright_hint": "await page.evaluate(() => { window.print = () => window.printed = true; }); await page.click('button:has-text(\"Imprimir\")');"
+    },
+    {
+      "id": "TC-014",
+      "title": "Ação: Compartilhar Relatório",
+      "priority": "P2",
+      "category": "ui",
+      "page": "relatorios",
+      "preconditions": "Usuário logado na página de Relatórios",
+      "steps": [
+        "Clicar no botão 'Compartilhar'"
+      ],
+      "expected": "Deve copiar o link para a área de transferência e exibir toast 'Link copiado'",
+      "playwright_hint": "await page.click('button:has-text(\"Compartilhar\")'); await expect(page.locator('.toast')).toContainText('copiado');"
+    },
+    {
+      "id": "TC-015",
+      "title": "Filtro de Relatórios por Status",
+      "priority": "P1",
+      "category": "ui",
+      "page": "relatorios",
+      "preconditions": "Usuário logado na página de Relatórios",
+      "steps": [
+        "Clicar no dropdown 'Todos status' na sidebar esquerda",
+        "Selecionar 'Rascunho'"
+      ],
+      "expected": "A lista 'Meus laudos' deve ser filtrada, exibindo apenas itens com a badge 'RASCUNHO'",
+      "playwright_hint": "await page.selectOption('select.status-filter', 'RASCUNHO'); await expect(page.locator('.laudo-item .badge')).toHaveText('RASCUNHO');"
+    },
+    {
+      "id": "TC-016",
+      "title": "Download de CSV de Auditoria",
+      "priority": "P1",
+      "category": "integration",
+      "page": "auditoria",
+      "preconditions": "Usuário logado na página de Auditoria",
+      "steps": [
+        "Clicar no botão 'CSV' na seção de Amostras auditadas"
+      ],
+      "expected": "O navegador deve iniciar o download de um arquivo com extensão .csv",
+      "playwright_hint": "const [download] = await Promise.all([page.waitForEvent('download'), page.click('button:has-text(\"CSV\")')]); expect(download.suggestedFilename()).endsWith('.csv');"
+    },
+    {
+      "id": "TC-017",
+      "title": "Modal de Agendar Calibração",
+      "priority": "P2",
+      "category": "ui",
+      "page": "auditoria",
+      "preconditions": "Usuário logado na página de Auditoria",
+      "steps": [
+        "Clicar no botão 'Agendar calibração' (canto inferior direito)"
+      ],
+      "expected": "Deve abrir um modal com formulário para agendamento de calibração",
+      "playwright_hint": "await page.click('button:has-text(\"Agendar calibração\")'); await expect(page.locator('.calibration-modal')).toBeVisible();"
+    },
+    {
+      "id": "TC-018",
+      "title": "Desativar Regra de Infração",
+      "priority": "P0",
+      "category": "integration",
+      "page": "regras",
+      "preconditions": "Usuário logado na página de Regras",
+      "steps": [
+        "Clicar no toggle switch da regra 'R1020-E-a' para desativar"
+      ],
+      "expected": "Deve disparar API para atualizar status, o toggle deve ficar cinza e a badge mudar para 'Inativo'",
+      "playwright_hint": "await page.click('.rule-row:first-child .switch'); await expect(page.locator('.rule-row:first-child .badge-status')).toHaveText('Inativo');"
+    },
+    {
+      "id": "TC-019",
+      "title": "Troca de Resolução CONTRAN",
+      "priority": "P2",
+      "category": "ui",
+      "page": "regras",
+      "preconditions": "Usuário logado na página de Regras",
+      "steps": [
+        "Clicar no dropdown 'Res. CONTRAN 1.020/2025'",
+        "Selecionar uma resolução anterior"
+      ],
+      "expected": "A lista de rubricas e parâmetros deve ser recarregada com os dados da resolução selecionada",
+      "playwright_hint": "await page.selectOption('.resolution-select', { index: 1 }); await expect(page.locator('.loading-overlay')).toBeHidden();"
+    },
+    {
+      "id": "TC-020",
+      "title": "Acessibilidade: Navegação por Teclado na Sidebar",
+      "priority": "P1",
+      "category": "a11y",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Pressionar a tecla 'Tab' repetidamente a partir do carregamento da página"
+      ],
+      "expected": "O foco (outline) deve passar sequencialmente pelos links da sidebar (Dashboard, Fila, Vídeos, etc.)",
+      "playwright_hint": "await page.keyboard.press('Tab'); await expect(page.locator('a[href=\"/dashboard\"]')).toBeFocused();"
+    },
+    {
+      "id": "TC-021",
+      "title": "Segurança: Sanitização de XSS na Busca",
+      "priority": "P0",
+      "category": "security",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Inserir '<script>alert(\"xss\")</script>' no campo de busca",
+        "Pressionar Enter"
+      ],
+      "expected": "A string deve ser tratada como texto puro, nenhum alert nativo deve ser disparado",
+      "playwright_hint": "page.on('dialog', () => { throw new Error('XSS triggered'); }); await page.fill('input[type=\"search\"]', '<script>alert(\"xss\")</script>');"
+    },
+    {
+      "id": "TC-022",
+      "title": "Comportamento Offline",
+      "priority": "P1",
+      "category": "edge",
+      "page": "global",
+      "preconditions": "Usuário logado",
+      "steps": [
+        "Simular perda de conexão de rede no Playwright",
+        "Tentar navegar para outra página via sidebar"
+      ],
+      "expected": "A SPA deve exibir um banner ou toast de 'Sem conexão com a internet' e não quebrar",
+      "playwright_hint": "await context.setOffline(true); await page.click('text=\"Alertas\"'); await expect(page.locator('.offline-toast')).toBeVisible();"
+    },
+    {
+      "id": "TC-023",
+      "title": "Estado Vazio de Vídeos",
+      "priority": "P2",
+      "category": "edge",
+      "page": "videos",
+      "preconditions": "Usuário logado na página de Vídeos",
+      "steps": [
+        "Interceptar a API de listagem de vídeos para retornar array vazio []",
+        "Recarregar a página"
+      ],
+      "expected": "A grid de vídeos não deve aparecer, exibindo uma ilustração de 'Nenhum vídeo encontrado'",
+      "playwright_hint": "await page.route('**/api/videos', route => route.fulfill({ json: [] })); await page.reload(); await expect(page.locator('.empty-state')).toBeVisible();"
+    },
+    {
+      "id": "TC-024",
+      "title": "Sincronização em Tempo Real (Mock)",
+      "priority": "P1",
+      "category": "integration",
+      "page": "alertas",
+      "preconditions": "Usuário logado na página de Alertas",
+      "steps": [
+        "Aguardar 15 segundos ou disparar evento mockado de WebSocket/SSE"
+      ],
+      "expected": "O contador de 'Pendentes' deve atualizar automaticamente sem necessidade de refresh na página",
+      "playwright_hint": "await page.evaluate(() => window.dispatchEvent(new CustomEvent('new-alert'))); await expect(page.locator('.pendentes-count')).toHaveText('3');"
+    },
+    {
+      "id": "TC-025",
+      "title": "Performance: Lazy Loading de Thumbnails",
+      "priority": "P2",
+      "category": "perf",
+      "page": "videos",
+      "preconditions": "Usuário logado na página de Vídeos com muitos itens",
+      "steps": [
+        "Fazer scroll rápido para o final da página"
+      ],
+      "expected": "Os cards devem exibir skeletons de loading antes das imagens dos vídeos serem carregadas",
+      "playwright_hint": "await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await expect(page.locator('.skeleton-thumbnail').first()).toBeVisible();"
+    }
+  ]
+}

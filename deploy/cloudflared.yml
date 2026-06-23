@@ -1,0 +1,17 @@
+# Config do cloudflared rodando dentro do container `valbot-cloudflared` na VM.
+# Tunnel: valbot-vm (UUID 95f67ca3-311e-4254-baad-d107f6eb7c33)
+# Hostname público: valbot.stillflows.com.br → http://api:80 (DNS interno do compose)
+
+tunnel: 95f67ca3-311e-4254-baad-d107f6eb7c33
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: valbot.stillflows.com.br
+    service: http://api:80
+    originRequest:
+      httpHostHeader: valbot.stillflows.com.br
+      noTLSVerify: false
+  # Acesso SSH opcional via Cloudflare Tunnel — exposição autorizada via Cloudflare Access.
+  - hostname: ssh.valbot.stillflows.com.br
+    service: ssh://host.docker.internal:22
+  - service: http_status:404

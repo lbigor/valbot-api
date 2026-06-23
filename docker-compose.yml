@@ -1,0 +1,120 @@
+# docker-compose para a VM valbot (us-central1).
+# 3 serviços: api (imagem pull do Artifact Registry), postgres, caddy (TLS direto).
+# Em dev local use `docker-compose.dev.yml` que builda a imagem em vez de pull.
+#
+# Variáveis de ambiente esperadas em .env (ver .env.example):
+#   POSTGRES_PASSWORD          — senha do user `valbot` no Postgres local
+#   IMAGE_TAG                  — tag da imagem (default: latest, prod usa SHA específico)
+#   GCP_PROJECT                — id do projeto GCP (default: valbot-497920 — AR + Vertex + GCS)
+
+services:
+  api:
+    image: us-central1-docker.pkg.dev/${GCP_PROJECT:-valbot-497920}/valbot/api:${IMAGE_TAG:-latest}
+    container_name: valbot-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://valbot:${POSTGRES_PASSWORD}@postgres:5432/valbot
+      VERTEX_PROJECT: ${GCP_PROJECT:-valbot-497920}
+      VERTEX_LOCATION: global
+      VERTEX_MODEL: gemini-3.1-pro-preview
+      # google-cloud-storage e outros libs do GCP procuram esta env var por
+      # padrão. Sem ela, storage.Client() levanta "Project was not passed"
+      # quando ADC do metadata server não está acessível ao container.
+      GOOGLE_CLOUD_PROJECT: ${GCP_PROJECT:-valbot-497920}
+      GCS_BUCKET: valbot-prod
+      LOG_FORMAT: json
+      VALBOT_USE_MOCK_VLM: ${VALBOT_USE_MOCK_VLM:-0}
+      VALBOT_ADMIN_TOKEN: ${VALBOT_ADMIN_TOKEN}
+      # Pipeline v26 modular MBEDV (discover_layout via Flash + composer
+      # per-câmera). Default 0 = pipeline v25 monolítico legado. 1 = ativa.
+      VALBOT_USE_MODULAR_V26: ${VALBOT_USE_MODULAR_V26:-0}
+      # Callback Techpratico — envio do laudo pra Unidade Gestora.
+      VALBOT_TECHPRATICO_RETORNO_URL: ${VALBOT_TECHPRATICO_RETORNO_URL:-https://convert.se.techpratico.net/conversao/retorno-analise}
+      VALBOT_TECHPRATICO_API_KEY: ${VALBOT_TECHPRATICO_API_KEY}
+      # AWS S3 — leitura dos vídeos no bucket do cliente.
+      # Lidos pelo tooling/process_pending_s3.py via boto3 (sem download em disco).
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-techpratico-stream-se-cache}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    # Vídeo bruto vive em GCS (gs://valbot-prod/uploads/...), mas os derivados
+    # de cada análise (upload.json, status.json, result.json, laudo.pdf) ficam
+    # em /opt/valbot/storage/analyses/. Esse path PRECISA ser persistente —
+    # senão um `docker compose pull api` apaga todo o histórico do dashboard.
+    volumes:
+      - valbot-storage:/opt/valbot/storage
+    networks: [valbot-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: valbot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: valbot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: valbot
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    networks: [valbot-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U valbot -d valbot"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Runner de migrations — sob profile `tools`, NÃO sobe no `up -d` normal.
+  # Disparado no deploy via `docker compose run --rm migrate` antes do `up -d api`.
+  # Aplica migrations/*.sql pendentes (ver deploy/scripts/migrate.sh).
+  migrate:
+    image: postgres:16-alpine
+    profiles: ["tools"]
+    environment:
+      PGHOST: postgres
+      PGUSER: valbot
+      PGDATABASE: valbot
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./migrations:/migrations:ro
+      - ./deploy/scripts/migrate.sh:/migrate.sh:ro
+    entrypoint: ["sh", "/migrate.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [valbot-net]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: valbot-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [valbot-net]
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  valbot-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  valbot-storage:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Laudo {{ laudo_id }}</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 15mm 20mm 15mm;
+    @bottom-center {
+      content: "Análise assistida por IA — não substitui avaliação oficial do Detran | Página " counter(page, decimal) " de " counter(pages, decimal);
+      font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      font-size: 8pt;
+      color: #888;
+    }
+  }
+  @page :first { @top-right { content: none; } }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, 'Helvetica Neue', 'Segoe UI', sans-serif;
+    font-size: 10pt;
+    color: #1f2937;
+    line-height: 1.45;
+  }
+
+  .brand {
+    letter-spacing: 2px;
+    font-weight: 700;
+    color: #111827;
+    font-size: 10pt;
+    text-transform: uppercase;
+  }
+  h1.title {
+    font-size: 22pt;
+    margin: 4px 0 2px 0;
+    color: #111827;
+    font-weight: 700;
+  }
+  .subtitle { color: #6b7280; font-size: 9.5pt; margin: 0 0 12px 0; }
+
+  .header-grid {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 8px;
+    margin-bottom: 14px;
+  }
+  .header-meta { text-align: right; font-size: 8.5pt; color: #4b5563; line-height: 1.6; }
+  .header-meta strong { color: #111827; }
+
+  /* Status banner */
+  .status { border-radius: 10px; padding: 18px 22px; margin: 10px 0 18px 0;
+            display: flex; justify-content: space-between; align-items: center; }
+  .status.apto { background: #d1fae5; border: 1.5px solid #10b981; }
+  .status.inapto { background: #fee2e2; border: 1.5px solid #ef4444; }
+  .status-label { font-size: 32pt; font-weight: 800; letter-spacing: 1px; }
+  .status.apto .status-label { color: #065f46; }
+  .status.inapto .status-label { color: #991b1b; }
+  .status-text { text-align: right; font-size: 9.5pt; line-height: 1.6; color: #374151; }
+  .status-text .big { font-size: 11pt; }
+  .status-text .big strong { font-size: 13pt; }
+
+  h2.section {
+    font-size: 13pt; color: #111827; font-weight: 700;
+    border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; margin: 18px 0 10px 0;
+  }
+
+  /* Data card */
+  .data-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;
+               padding: 12px 16px; }
+  .data-card .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 9.5pt; }
+  .data-card .row .k { color: #6b7280; }
+  .data-card .row .v { color: #111827; font-weight: 600; }
+
+  /* Summary cards */
+  .summary { display: flex; gap: 8px; margin: 10px 0 0 0; }
+  .card { flex: 1; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 8px;
+          text-align: center; background: #fff; }
+  .card .num { font-size: 30pt; font-weight: 800; line-height: 1; }
+  .card .lbl { font-size: 8pt; color: #6b7280; margin-top: 4px; letter-spacing: 0.5px; }
+  .card.elim { border-color: #ef4444; background: #fee2e2; }
+  .card.elim .num { color: #991b1b; }
+  .card.grave .num { color: #b45309; }
+  .card.media .num { color: #a16207; }
+  .card.leve .num { color: #047857; }
+
+  /* Infractions table */
+  table.infracoes { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9pt; }
+  table.infracoes thead th {
+    background: #f3f4f6; color: #374151; text-align: left;
+    padding: 8px; border-bottom: 1px solid #e5e7eb; font-size: 8pt;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  table.infracoes tbody td { padding: 9px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+  table.infracoes .tempo { font-family: 'Menlo', 'Courier New', monospace; color: #374151; white-space: nowrap; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 4px;
+           font-size: 7.5pt; font-weight: 700; letter-spacing: 0.5px; color: #fff; }
+  .badge.eliminatoria { background: #ef4444; }
+  .badge.gravissima { background: #b91c1c; }
+  .badge.grave { background: #f97316; }
+  .badge.media { background: #eab308; }
+  .badge.leve { background: #10b981; }
+
+  /* Infraction detail boxes */
+  .detail {
+    border-left: 4px solid #d1d5db;
+    background: #f9fafb;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    page-break-inside: avoid;
+  }
+  .detail.eliminatoria { border-left-color: #ef4444; background: #fef2f2; }
+  .detail.gravissima { border-left-color: #b91c1c; background: #fef2f2; }
+  .detail.grave { border-left-color: #f97316; background: #fff7ed; }
+  .detail.media { border-left-color: #eab308; background: #fefce8; }
+  .detail.leve { border-left-color: #10b981; background: #f0fdf4; }
+  .detail-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .detail-head .t { font-weight: 700; font-size: 10.5pt; color: #111827; }
+  .detail-meta { font-size: 8.5pt; color: #6b7280; margin-bottom: 8px; }
+  .detail p { margin: 6px 0; font-size: 9.5pt; }
+  .detail .evidencia { background: #fff; padding: 8px 10px; border-radius: 4px; font-size: 9pt; margin: 6px 0; }
+  .detail .base { font-size: 8.5pt; color: #4b5563; }
+
+  /* Timeline */
+  .timeline-bar {
+    height: 18px; background: #f3f4f6; border: 1px solid #e5e7eb;
+    border-radius: 4px; position: relative; margin: 10px 0 4px 0;
+  }
+  .timeline-bar .tick {
+    position: absolute; top: -2px; bottom: -2px; width: 4px; border-radius: 2px;
+  }
+  .timeline-bar .tick.eliminatoria, .timeline-bar .tick.gravissima { background: #ef4444; }
+  .timeline-bar .tick.grave { background: #f97316; }
+  .timeline-bar .tick.media { background: #eab308; }
+  .timeline-bar .tick.leve { background: #10b981; }
+  .timeline-scale {
+    display: flex; justify-content: space-between;
+    font-family: 'Menlo', monospace; font-size: 7.5pt; color: #6b7280;
+  }
+  .timeline-log {
+    background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 10px 14px; margin-top: 8px;
+    font-family: 'Menlo', 'Courier New', monospace; font-size: 8.5pt;
+    line-height: 1.7; white-space: pre-wrap;
+  }
+  .timeline-log .ev.eliminatoria, .timeline-log .ev.gravissima { color: #b91c1c; font-weight: 700; }
+  .timeline-log .ev.grave { color: #c2410c; font-weight: 700; }
+  .timeline-log .ev.media { color: #a16207; font-weight: 700; }
+  .timeline-log .ev.leve { color: #047857; font-weight: 700; }
+
+  /* Summary two columns */
+  .two-col { display: flex; gap: 12px; margin: 10px 0; }
+  .two-col > div { flex: 1; border-radius: 8px; padding: 14px 18px; }
+  .two-col .positivos { background: #f0fdf4; border: 1px solid #10b981; }
+  .two-col .atencao { background: #fffbeb; border: 1px solid #f59e0b; }
+  .two-col h3 { margin: 0 0 8px 0; font-size: 10.5pt; color: #111827; }
+  .two-col ul { margin: 0; padding-left: 18px; font-size: 9pt; line-height: 1.5; }
+  .two-col li { margin-bottom: 4px; }
+
+  /* Coverage */
+  .coverage { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 18px; }
+  .coverage-top { display: flex; justify-content: space-around; margin-bottom: 12px; text-align: center; }
+  .coverage-top .stat .num { font-size: 24pt; font-weight: 800; line-height: 1; }
+  .coverage-top .stat .lbl { font-size: 7.5pt; color: #6b7280; letter-spacing: 0.5px; margin-top: 4px; }
+  .coverage-top .stat.pct .num { color: #10b981; }
+  .coverage-top .stat.v2 .num { color: #ef4444; }
+  .coverage-lists { display: flex; gap: 14px; font-size: 9pt; }
+  .coverage-lists > div { flex: 1; }
+  .coverage-lists h4 { margin: 0 0 6px 0; font-size: 9.5pt; color: #111827; }
+  .coverage-lists ul { list-style: none; padding: 0; margin: 0; line-height: 1.6; }
+  .coverage-lists .ok::before { content: "✓ "; color: #10b981; font-weight: 700; }
+  .coverage-lists .no::before { content: "✕ "; color: #ef4444; font-weight: 700; }
+
+  .page-break { page-break-before: always; }
+
+  /* Determinism footer */
+  .determinismo {
+    margin-top: 18px; background: #f9fafb; border: 1px solid #e5e7eb;
+    border-radius: 6px; padding: 10px 14px;
+    font-family: 'Menlo', 'Courier New', monospace; font-size: 7.5pt; color: #4b5563;
+    line-height: 1.6;
+  }
+  .determinismo strong { color: #111827; }
+</style>
+</head>
+<body>
+
+<div class="header-grid">
+  <div>
+    <div class="brand">VALBOT</div>
+    <h1 class="title">Laudo de Análise de Exame Prático</h1>
+    <p class="subtitle">Análise automatizada de direção veicular — {{ rubrica.nome }}</p>
+  </div>
+  <div class="header-meta">
+    <div><strong>ID:</strong> {{ laudo_id }}</div>
+    <div><strong>Emitido em:</strong> {{ emitido_em }}</div>
+    <div><strong>Modelo:</strong> {{ modelo_versao }}</div>
+  </div>
+</div>
+
+<div class="status {{ 'apto' if aprovado else 'inapto' }}">
+  <div class="status-label">{{ 'APROVADO' if aprovado else 'REPROVADO' }}</div>
+  <div class="status-text">
+    <div class="big">Pontuação: <strong>{{ pontuacao_total }} pontos</strong> / {{ rubrica.limite_pontuacao }} máx.</div>
+    <div>{{ 'Nenhuma falta eliminatória' if aprovado else motivo_reprovacao }}</div>
+    <div>{{ 'Aprovação conforme ' + rubrica.artigo_aprovacao if aprovado else 'Reprovação conforme ' + rubrica.artigo_reprovacao }}</div>
+  </div>
+</div>
+
+<h2 class="section">Dados do Exame</h2>
+<div class="data-card">
+  <div class="row"><span class="k">Candidato</span><span class="v">{{ exame.candidato }}</span></div>
+  <div class="row"><span class="k">CPF</span><span class="v">{{ exame.cpf }}</span></div>
+  <div class="row"><span class="k">RENACH</span><span class="v">{{ exame.renach }}</span></div>
+  <div class="row"><span class="k">Processo</span><span class="v">{{ exame.processo }}</span></div>
+  <div class="row"><span class="k">Categoria</span><span class="v">{{ exame.categoria }}</span></div>
+  <div class="row"><span class="k">Veículo / Placa</span><span class="v">{{ exame.veiculo }}</span></div>
+  <div class="row"><span class="k">Local do Exame</span><span class="v">{{ exame.local }}</span></div>
+  <div class="row"><span class="k">Examinador</span><span class="v">{{ exame.examinador }}</span></div>
+  <div class="row"><span class="k">Data do Exame</span><span class="v">{{ exame.data_exame }}</span></div>
+  <div class="row"><span class="k">Duração do Vídeo</span><span class="v">{{ duracao_fmt }} ({{ duracao_seg }} seg)</span></div>
+</div>
+
+<h2 class="section">Resumo da Pontuação</h2>
+<div class="summary">
+  <div class="card elim">
+    <div class="num">{{ contagem.eliminatoria + contagem.gravissima }}</div>
+    <div class="lbl">{{ 'GRAVÍSSIMA' if rubrica.slug == '1020/2025' else 'ELIMINATÓRIA' }}</div>
+  </div>
+  <div class="card grave">
+    <div class="num">{{ contagem.grave }}</div>
+    <div class="lbl">GRAVES{% if rubrica.pesos.grave %} ({{ rubrica.pesos.grave }} PTS){% endif %}</div>
+  </div>
+  <div class="card media">
+    <div class="num">{{ contagem.media }}</div>
+    <div class="lbl">MÉDIAS{% if rubrica.pesos.media %} ({{ rubrica.pesos.media }} PTS){% endif %}</div>
+  </div>
+  <div class="card leve">
+    <div class="num">{{ contagem.leve }}</div>
+    <div class="lbl">LEVES{% if rubrica.pesos.leve %} ({{ rubrica.pesos.leve }} PT){% endif %}</div>
+  </div>
+</div>
+
+<h2 class="section">Infrações Identificadas</h2>
+{% if infracoes %}
+<table class="infracoes">
+  <thead>
+    <tr><th>Tempo</th><th>Duração</th><th>Infração</th><th>Gravidade</th><th>Pontos</th></tr>
+  </thead>
+  <tbody>
+  {% for inf in infracoes %}
+    <tr>
+      <td class="tempo">{{ inf.timestamp_inicio }}</td>
+      <td class="tempo">{{ inf.duracao_fmt or '—' }}{% if inf.occurrences and inf.occurrences > 1 %} · {{ inf.occurrences }}×{% endif %}</td>
+      <td>{{ inf.descricao }}</td>
+      <td><span class="badge {{ inf.gravidade }}">{{ inf.gravidade_label }}</span></td>
+      <td>{{ '—' if inf.gravidade in ('eliminatoria',) or inf.pontos is none else inf.pontos }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p style="color: #6b7280; padding: 12px; background: #f9fafb; border-radius: 6px;">
+  Nenhuma infração identificada durante o exame.
+</p>
+{% endif %}
+
+{% if infracoes %}
+<div class="page-break"></div>
+
+<h2 class="section">Detalhamento das Infrações</h2>
+{% for inf in infracoes %}
+<div class="detail {{ inf.gravidade }}">
+  <div class="detail-head">
+    <span class="t">{{ inf.titulo }}</span>
+    <span class="badge {{ inf.gravidade }}">{{ inf.gravidade_label }}{% if inf.pontos is not none %} — {{ inf.pontos }} PT{% if inf.pontos > 1 %}S{% endif %}{% endif %}</span>
+  </div>
+  <div class="detail-meta">
+    <strong>Timestamp:</strong> {{ inf.timestamp_inicio }} – {{ inf.timestamp_fim }}
+    {% if inf.duracao_fmt %}({{ inf.duracao_fmt }}){% endif %}
+    {% if inf.occurrences and inf.occurrences > 1 %}&nbsp;•&nbsp;<em>{{ inf.occurrences }} detecções mescladas</em>{% endif %}
+    &nbsp;
+    <strong>Câmera:</strong> {{ inf.cameras_fmt }}
+  </div>
+  <p><strong>Descrição:</strong> {{ inf.descricao_longa }}</p>
+  <div class="evidencia"><strong>Evidência visual:</strong> {{ inf.evidencia }}</div>
+  <p class="base"><strong>Base legal:</strong> {{ inf.base_legal }}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2 class="section">Linha do Tempo</h2>
+<div class="timeline-bar">
+  {% for ev in linha_do_tempo if ev.gravidade %}
+    <div class="tick {{ ev.gravidade }}" style="left: {{ ev.pct }}%;"></div>
+  {% endfor %}
+</div>
+<div class="timeline-scale">
+  <span>00:00</span><span>{{ duracao_fmt }}</span>
+</div>
+{% if linha_do_tempo %}
+<div class="timeline-log">{% for ev in linha_do_tempo %}{{ ev.timestamp }}  {% if ev.gravidade %}<span class="ev {{ ev.gravidade }}">[{{ ev.gravidade_label }}]</span> {% endif %}{{ ev.descricao }}
+{% endfor %}</div>
+{% endif %}
+
+{% if positivos or pontos_atencao %}
+<div class="page-break"></div>
+
+<h2 class="section">Sumário da Análise</h2>
+<div class="two-col">
+  <div class="positivos">
+    <h3>Aspectos Positivos</h3>
+    <ul>{% for p in positivos %}<li>{{ p }}</li>{% else %}<li>—</li>{% endfor %}</ul>
+  </div>
+  <div class="atencao">
+    <h3>{{ 'Pontos de Atenção' if aprovado else 'Áreas para Treino' }}</h3>
+    <ul>{% for p in pontos_atencao %}<li>{{ p }}</li>{% else %}<li>—</li>{% endfor %}</ul>
+  </div>
+</div>
+{% endif %}
+
+<div class="determinismo">
+  <strong>Determinismo:</strong><br>
+  Hash do vídeo: &nbsp;&nbsp;{{ video_hash }}<br>
+  Hash do resultado: {{ result_hash }}<br>
+  Versão da análise: {{ analysis_version }}<br>
+  Versão do modelo: {{ modelo_versao }}<br>
+  Versão da rubrica: {{ rubrica.nome }}
+</div>
+
+</body>
+</html>
