@@ -954,25 +954,36 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     geradas pelo pipeline em prod (tabela vazia); derivamos a fila das DIVERGÊNCIAS
     reais (exame onde o veredito oficial difere do calculado pela IA), que é
     exatamente o que o supervisor arbitra. Dados 100% reais de v_exams_overview."""
-    rows = db.list_resultados(dias=3650, limit=400) or []
+    # Fila do auditor E do supervisor: TODOS os vídeos a partir da data de corte
+    # (não só as divergências). Cada exame ganha um sinalizador de status na
+    # coluna Sinalizadores. Corte configurável por env; default 23/06/2026.
+    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-23")
+    rows = db.list_resultados(desde=fila_desde, limit=2000) or []
     items = []
-    n = 0
     for r in rows:
         of = (r.get("resultado_exame") or "").strip().upper()
         ap = r.get("aprovado")
         diverge = (of == "A" and ap is False) or (of == "R" and ap is True)
-        if not diverge:
-            continue
-        n += 1
         rc = "A" if ap is True else ("R" if ap is False else None)
         h = r.get("hash")
         aberta_em = r.get("created_at")
         # SLA: aberta_em + prazo do auditor (default 24h). Null se sem abertura.
         sla_due_at = _add_hours(aberta_em, db.SLA_PRAZO_AUDITOR_H)
-        # video_ok: qualidade de câmera/vídeo OK. A v_exams_overview já traz o
-        # veredito do validador (HOMO/NAO_HOMO) + a confiança do layout. Sem
-        # nenhum dos sinais ⇒ null (não inventa).
         video_ok = _derive_video_ok(r)
+        # Sinalizador de estágio de processamento do vídeo (sempre presente).
+        _st = (r.get("status") or "").strip().lower()
+        if r.get("gate_rejected"):
+            status_proc = "gate_rejeitado"
+        elif _st in ("processed", "done", "concluido", "concluído"):
+            status_proc = "processado"
+        elif _st in ("running", "processing", "analisando"):
+            status_proc = "processando"
+        elif _st in ("queued", "pending", "novo", "uploaded", "recebido"):
+            status_proc = "aguardando"
+        elif _st in ("failed", "error", "erro"):
+            status_proc = "falhou"
+        else:
+            status_proc = _st or "desconhecido"
         items.append(
             {
                 "os_id": h,
@@ -984,9 +995,12 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "categoria": r.get("categoria"),
                 "unidade": r.get("local_unidade"),
                 "examinador": r.get("examinador"),
-                "tipo_divergencia": "resultado",
-                "tipo_label": "Divergência de resultado",
+                "tipo_divergencia": "resultado" if diverge else "concordante",
+                "tipo_label": "Divergência de resultado" if diverge else "Concordante",
                 "status": "aguardando_supervisor",
+                "status_proc": status_proc,
+                "gate_rejected": bool(r.get("gate_rejected")),
+                "divergente": diverge,
                 "resultado_oficial": of or None,
                 "resultado_calculado": rc,
                 "pontuacao_oficial": None,

@@ -1267,6 +1267,7 @@ def delete_admin_user(user_id: str) -> bool:
 def list_resultados(
     *,
     dias: int | None = None,
+    desde: str | None = None,
     unidade: str | None = None,
     examinador: str | None = None,
     resultado: str | None = None,
@@ -1298,6 +1299,10 @@ def list_resultados(
     if categoria:
         where.append("categoria = %s")
         vals.append(categoria)
+    if desde:
+        # Corte por data absoluta (fila só com vídeos a partir de DD/MM/AAAA).
+        where.append("created_at >= %s")
+        vals.append(desde)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
     vals.append(int(limit))
     vals.append(max(0, int(offset)))
