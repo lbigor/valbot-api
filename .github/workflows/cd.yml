@@ -1,0 +1,74 @@
+name: CD Backend
+
+# Deploy versionado do backend (valbot-api) na VM valbot-prod.
+#   push em `main` que toque server.py/db.py  → atualiza o backend na VM
+#   workflow_dispatch                          → deploy manual sob demanda
+#
+# Autentica via Workload Identity Federation keyless (mesma config do valbot-web,
+# projeto valbot-497920) — sem chave JSON. Atualiza os arquivos montados via
+# docker-compose.override.yml em /opt/valbot-deploy/customizations e reinicia o
+# container. ⚠️ o restart reinicia o uvicorn → /api/exams/init-upload fica
+# indisponível por alguns segundos. Backups ficam como *.bak-cd-<ts> (rollback).
+#
+# Médio prazo: quando o backend rodar a imagem com o código embutido (API-only),
+# este CD passa a fazer pull da imagem em vez do swap dos arquivos soltos.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tooling/api_stub/server.py"
+      - "tooling/api_stub/db.py"
+  workflow_dispatch:
+
+concurrency:
+  group: cd-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # WIF
+    env:
+      VM: ${{ secrets.DEPLOY_VM }}
+      ZONE: ${{ secrets.DEPLOY_ZONE }}
+      CUST: /opt/valbot-deploy/customizations
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud (WIF keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Envia server.py/db.py para a VM
+        run: |
+          gcloud compute scp tooling/api_stub/server.py tooling/api_stub/db.py \
+            "${VM}:/tmp/" --zone "${ZONE}" --tunnel-through-iap --quiet
+
+      - name: Deploy (backup + troca + restart)
+        run: |
+          gcloud compute ssh "${VM}" --zone "${ZONE}" --tunnel-through-iap --quiet --command '
+            set -e
+            CUST='"${CUST}"'
+            TS=$(date +%Y%m%d_%H%M%S)
+            sudo cp "$CUST/server.py" "$CUST/server.py.bak-cd-$TS"
+            sudo cp "$CUST/db.py" "$CUST/db.py.bak-cd-$TS"
+            sudo cp /tmp/server.py "$CUST/server.py"
+            sudo cp /tmp/db.py "$CUST/db.py"
+            sudo docker restart valbot-api >/dev/null
+            echo "deploy backend ok ($TS)"
+          '
+
+      - name: Verifica health
+        run: |
+          sleep 12
+          curl -fsS --max-time 20 https://valbot.com.br/api/health || (echo "health não respondeu" && exit 1)
