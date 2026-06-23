@@ -954,11 +954,13 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     geradas pelo pipeline em prod (tabela vazia); derivamos a fila das DIVERGÊNCIAS
     reais (exame onde o veredito oficial difere do calculado pela IA), que é
     exatamente o que o supervisor arbitra. Dados 100% reais de v_exams_overview."""
-    # Fila do auditor E do supervisor: TODOS os vídeos a partir da data de corte
-    # (não só as divergências). Cada exame ganha um sinalizador de status na
-    # coluna Sinalizadores. Corte configurável por env; default 23/06/2026.
+    # Fila do auditor E do supervisor: vídeos a partir da data de corte, apenas
+    # da categoria B (1ª habilitação — o que entra no fluxo de auditoria). Não
+    # só as divergências; cada exame ganha um sinalizador de status. Corte e
+    # categoria configuráveis por env; default 23/06/2026 + B.
     fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-23")
-    rows = db.list_resultados(desde=fila_desde, limit=2000) or []
+    fila_categoria = os.environ.get("VALBOT_FILA_CATEGORIA", "B")
+    rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
     items = []
     for r in rows:
         of = (r.get("resultado_exame") or "").strip().upper()
