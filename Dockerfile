@@ -25,7 +25,7 @@ RUN cd frontend && pnpm --filter @workspace/valbot build
 # -----------------------------------------------------------------------------
 # Stage 2 — runtime Python + nginx
 # -----------------------------------------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ARG IMAGE_VERSION=dev
 ARG GIT_SHA=unknown
