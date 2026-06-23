@@ -10,7 +10,7 @@ pydantic==2.9.2
 # que CI/testes consigam rodar tests/test_init_upload_batch.py
 # (FastAPI TestClient) sem refletir drift entre dev e prod.
 fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
+uvicorn[standard]>=0.49.0
 python-multipart>=0.0.12
 structlog>=24.4.0
 
