@@ -4763,6 +4763,29 @@ def _download_gcs_json(gs_uri: str):
         return None
 
 
+def _load_result_raw(hash: str, gs_uri: str | None = None) -> dict | None:
+    """Carrega o result.json CRU do Gemini de um exame (sem montar shape).
+    Ordem: result.json local → gs_result_json (GCS). None se nenhum. Nunca levanta.
+    Usado pra surfaciar campos informativos do result que não viram coluna no DB
+    (ex.: `checklist_anexo_k`, `cobertura_integral`)."""
+    try:
+        local_result = ANALYSES_DIR / hash / "result.json"
+        if local_result.exists():
+            raw = json.loads(local_result.read_text() or "{}")
+            if isinstance(raw, dict):
+                return raw
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if gs_uri and str(gs_uri).startswith("gs://"):
+            raw = _download_gcs_json(str(gs_uri))
+            if isinstance(raw, dict):
+                return raw
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def _response_from_result_json(hash: str, raw: dict):
     """Constrói o shape do frontend a partir de um result.json (Gemini/pipeline).
     Usa as infrações avaliadas/detectadas do JSON. None se sem infrações
@@ -5701,6 +5724,16 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "gs_laudo_pdf": e.get("gs_laudo_pdf"),
         },
     }
+    # Checklist técnico Anexo K (12 itens) — informativo, emitido pelo Gemini no
+    # result_json (sem coluna dedicada no DB). Surfaciado em 6_cobertura. Best-
+    # effort: qualquer falha mantém o bloco sem o checklist (frontend mostra "—").
+    try:
+        _res = _load_result_raw(hash_, e.get("gs_result_json"))
+        _chk = (_res or {}).get("checklist_anexo_k")
+        if isinstance(_chk, list) and _chk:
+            blocos["6_cobertura"]["checklist_anexo_k"] = _chk
+    except Exception:  # noqa: BLE001
+        pass
     laudo = {
         "exame_hash": hash_,
         "laudo_versao": "laudo/2.0",
