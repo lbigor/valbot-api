@@ -31,7 +31,7 @@ jobs:
           pip install pre-commit pytest pytest-cov
 
       # Node 22 + pnpm (versão vem do packageManager em frontend/package.json)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: frontend/package.json
       - uses: actions/setup-node@v4
