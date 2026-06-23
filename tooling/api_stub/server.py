@@ -2772,6 +2772,22 @@ def _run_analysis(
     quando vem do `POST /api/exams` legado, é caminho local.
     `analysis_id` é UUID hex (signed URL flow) ou SHA256 (legado).
     """
+    # Kill-switch de auto-processamento. Com VALBOT_AUTO_WORKER=0 a API segue
+    # ingerindo normalmente (init-upload grava o exame como `queued`), mas
+    # NENHUM exame é processado sozinho — nem pelo worker de fila, nem pelo
+    # dispatch inline do upload/download S3, que também desembocam aqui. O
+    # exame fica `queued` até religar a flag (=1) ou disparo manual. Mantém o
+    # SLA do init-upload (porta única de ingestão nunca cai).
+    if os.environ.get("VALBOT_AUTO_WORKER", "1") != "1":
+        log.info(
+            "auto-processamento OFF (VALBOT_AUTO_WORKER=0) — exame %s permanece queued",
+            analysis_id[:12],
+        )
+        try:
+            db.update_status(analysis_id, "queued")
+        except Exception:
+            pass
+        return
     out_dir = ANALYSES_DIR / analysis_id
     is_gcs = isinstance(video_ref, str) and video_ref.startswith("gs://")
     rubrica_slug = upload_meta.get("exame", {}).get("rubrica", "1020/2025")
