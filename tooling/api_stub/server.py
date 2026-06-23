@@ -28,7 +28,7 @@ import threading
 import time
 import traceback
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
@@ -97,6 +97,48 @@ def _mask_cpf(cpf: str | None) -> str:
     if len(d) >= 11:
         return f"***.{d[3:6]}.{d[6:9]}-**"
     return "*" * len(str(cpf))
+
+
+def _add_hours(value, hours: int) -> str | None:
+    """Soma `hours` horas a um instante (datetime ou ISO string) e devolve ISO.
+    Usado para o vencimento do SLA (aberta_em + prazo do auditor). None se a
+    entrada for vazia/ilegível — nunca inventa um vencimento."""
+    if not value:
+        return None
+    dt = value
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(dt, datetime):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return (dt + timedelta(hours=hours)).isoformat()
+
+
+def _derive_video_ok(row: dict) -> bool | None:
+    """Qualidade de câmera/vídeo OK, derivada do que a v_exams_overview já expõe:
+    veredito do validador (validator_veredito HOMO/NAO_HOMO) e, na ausência dele,
+    a confiança do layout (layout_confianca ≥ 0.7). Sem nenhum dos sinais ⇒ None
+    (sem dado, não inventa)."""
+    ver = row.get("validator_veredito")
+    if ver:
+        v = str(ver).strip().upper()
+        if v == "HOMO":
+            return True
+        if v == "NAO_HOMO":
+            return False
+    conf = row.get("layout_confianca")
+    if conf is None:
+        conf = row.get("validator_confianca")
+    if conf is not None:
+        try:
+            return float(conf) >= 0.7
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _mask_renach(renach: str | None) -> str:
@@ -923,11 +965,19 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
             continue
         n += 1
         rc = "A" if ap is True else ("R" if ap is False else None)
+        h = r.get("hash")
+        aberta_em = r.get("created_at")
+        # SLA: aberta_em + prazo do auditor (default 24h). Null se sem abertura.
+        sla_due_at = _add_hours(aberta_em, db.SLA_PRAZO_AUDITOR_H)
+        # video_ok: qualidade de câmera/vídeo OK. A v_exams_overview já traz o
+        # veredito do validador (HOMO/NAO_HOMO) + a confiança do layout. Sem
+        # nenhum dos sinais ⇒ null (não inventa).
+        video_ok = _derive_video_ok(r)
         items.append(
             {
-                "os_id": r.get("hash"),
-                "numero_os": f"OS-{(r.get('hash') or '')[:8].upper()}",
-                "exam_hash": r.get("hash"),
+                "os_id": h,
+                "numero_os": f"OS-{(h or '')[:8].upper()}",
+                "exam_hash": h,
                 "renach": r.get("renach"),
                 "candidato_nome": r.get("candidato_nome"),
                 "candidato": _mask_cpf(r.get("candidato_cpf")),
@@ -943,11 +993,26 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "pontuacao_calculada": r.get("pontuacao_total"),
                 "auditor_email": None,
                 "supervisor_email": None,
-                "aberta_em": r.get("created_at"),
-                "sla_due_at": None,
+                "aberta_em": aberta_em,
+                "sla_due_at": sla_due_at,
                 "conf": None,
+                # Sinalizadores derivados de dados já existentes no banco.
+                "conduta_inadequada": None,  # preenchido abaixo (compliance)
+                "video_ok": video_ok,
+                "comite_concluido": None,  # preenchido abaixo (comitê)
             }
         )
+    # Enriquece com sinais que não estão na view (compliance + comitê), em uma
+    # query batelada por hash. Ausência de dado ⇒ permanece null.
+    try:
+        enr = db.os_enrichment([i["exam_hash"] for i in items]) or {}
+        for i in items:
+            sig = enr.get(i["exam_hash"])
+            if sig:
+                i["conduta_inadequada"] = sig.get("conduta_inadequada")
+                i["comite_concluido"] = sig.get("comite_concluido")
+    except Exception as e:
+        log.warning("list_os_v2 enrichment falhou: %s", e)
     if status:
         items = [i for i in items if i["status"] == status]
     return {"count": len(items), "items": items, "source": "db"}
