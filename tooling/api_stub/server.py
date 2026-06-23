@@ -5676,7 +5676,14 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     comite_meta = d.get("comite_meta") or {}
     parecer = d.get("parecer_auditor") or {}
     decisao = d.get("decisao_supervisor") or {}
-    infracoes = d.get("infracoes") or []
+    # Converte as infrações cruas (exam_infractions: timestamp_s numérico, regra_id,
+    # cameras[]) pro shape que o frontend espera (timestamp_inicio "mm:ss", id,
+    # gravidade_label, cameras_fmt, confianca textual). Sem isso o timestamp (que o
+    # Gemini SEMPRE aponta e está salvo) e os demais campos apareciam "—".
+    _dur_infr = float((d.get("exam") or {}).get("duration_s") or 0)
+    infracoes = [
+        _infracao_from_db(i, item, _dur_infr) for i, item in enumerate(d.get("infracoes") or [])
+    ]
     eventos = d.get("os_eventos") or []
     divergencia = d.get("divergencia") or {}
     eventos_brutos = d.get("eventos") or []
