@@ -27,7 +27,7 @@ psycopg[binary]==3.2.3
 
 # --- AWS S3 (download de vídeos de buckets privados — SDK boto3) ---
 # Stream S3 → GCS via boto3 (sem download em disco) — usado em tooling/process_pending_s3.py.
-boto3>=1.43.0
+boto3>=1.43.35
 
 # --- Dev (lint + testes) ---
 pytest==8.3.3
