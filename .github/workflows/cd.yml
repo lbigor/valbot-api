@@ -49,21 +49,19 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Envia server.py/db.py para a VM
-        run: |
-          gcloud compute scp tooling/api_stub/server.py tooling/api_stub/db.py \
-            "${VM}:/tmp/" --zone "${ZONE}" --tunnel-through-iap --quiet
-
-      - name: Deploy (backup + troca + restart)
+      # Tudo numa única conexão SSH (o gcloud compute scp via IAP pendura neste
+      # ambiente; ssh funciona). A VM clona a própria main e troca os arquivos.
+      - name: Deploy (clone main na VM + backup + troca + restart)
         run: |
           gcloud compute ssh "${VM}" --zone "${ZONE}" --tunnel-through-iap --quiet --command '
             set -e
             CUST='"${CUST}"'
             TS=$(date +%Y%m%d_%H%M%S)
+            cd /tmp && rm -rf va-cd && git clone --depth 1 -q https://github.com/lbigor/valbot-api.git va-cd
             sudo cp "$CUST/server.py" "$CUST/server.py.bak-cd-$TS"
             sudo cp "$CUST/db.py" "$CUST/db.py.bak-cd-$TS"
-            sudo cp /tmp/server.py "$CUST/server.py"
-            sudo cp /tmp/db.py "$CUST/db.py"
+            sudo cp /tmp/va-cd/tooling/api_stub/server.py "$CUST/server.py"
+            sudo cp /tmp/va-cd/tooling/api_stub/db.py "$CUST/db.py"
             sudo docker restart valbot-api >/dev/null
             echo "deploy backend ok ($TS)"
           '
