@@ -1321,6 +1321,67 @@ def list_resultados(
         return None
 
 
+# Prazo default do auditor para o vencimento do SLA, em horas. Bate com o
+# DEFAULT da coluna ordens_servico.sla_prazo_auditor_h (migration 014).
+SLA_PRAZO_AUDITOR_H = 24
+
+
+def os_enrichment(hashes: list[str]) -> dict[str, dict] | None:
+    """Sinais de enriquecimento da fila de OS por exam_hash (dados que já existem
+    no banco mas não estão na v_exams_overview). Uma query batelada por sinal,
+    chaveada pelo hash do exame. None se DB off; {} se nenhum hash.
+
+    Retorna, por hash:
+      - conduta_inadequada (bool): há comentário de conduta inadequada do
+        examinador em exam_comentarios_compliance (tipo='examinador_inadequado').
+      - comite_concluido (bool): há laudo de comitê (exam_comite_laudos) para o
+        exame.
+
+    Ausência de hash no dicionário ⇒ sem dado ⇒ o chamador grava null. NUNCA
+    inventa valor: só entram hashes que casaram em cada tabela.
+    """
+    if _disabled():
+        return None
+    hs = [h for h in (hashes or []) if h]
+    if not hs:
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        with _conn() as c:
+            if c is None:
+                return None
+            # Conduta inadequada do examinador (compliance §6/§10).
+            cur = c.execute(
+                """
+                SELECT DISTINCT e.hash
+                FROM exam_comentarios_compliance cc
+                JOIN exams e ON e.id = cc.exam_id
+                WHERE e.hash = ANY(%s)
+                  AND cc.tipo = 'examinador_inadequado'
+                """,
+                (hs,),
+            )
+            for (h,) in cur.fetchall():
+                out.setdefault(h, {})["conduta_inadequada"] = True
+
+            # Laudo de comitê concluído para o exame.
+            cur = c.execute(
+                """
+                SELECT DISTINCT e.hash
+                FROM exam_comite_laudos cl
+                JOIN exams e ON e.id = cl.exam_id
+                WHERE e.hash = ANY(%s)
+                """,
+                (hs,),
+            )
+            for (h,) in cur.fetchall():
+                out.setdefault(h, {})["comite_concluido"] = True
+            return out
+    except Exception as e:
+        log.exception("db.os_enrichment falhou: %s", e)
+        return None
+
+
 def count_resultados(
     *,
     dias: int | None = None,
