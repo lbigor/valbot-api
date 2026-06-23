@@ -1475,14 +1475,27 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                 ).fetchone()
                 if xrow:
                     xcols = [
-                        "processo", "rubrica", "training_annotations",
-                        "unidade", "tipo_exame",
-                        "examinador_matricula", "examinador_eh_preposto",
+                        "processo",
+                        "rubrica",
+                        "training_annotations",
+                        "unidade",
+                        "tipo_exame",
+                        "examinador_matricula",
+                        "examinador_eh_preposto",
                         "data_hora_exame",
-                        "pontuacao_oficial", "houve_interrupcao", "motivo_interrupcao",
-                        "resultado_calculado", "pontuacao_calculada", "matriz_versao",
-                        "engine_backend", "engine_model", "engine_preset",
-                        "cost_usd", "cost_tokens_in", "cost_tokens_out", "gemini_elapsed_s",
+                        "pontuacao_oficial",
+                        "houve_interrupcao",
+                        "motivo_interrupcao",
+                        "resultado_calculado",
+                        "pontuacao_calculada",
+                        "matriz_versao",
+                        "engine_backend",
+                        "engine_model",
+                        "engine_preset",
+                        "cost_usd",
+                        "cost_tokens_in",
+                        "cost_tokens_out",
+                        "gemini_elapsed_s",
                     ]
                     # Não sobrescreve chaves já vindas da view (ex.: nenhuma
                     # colide hoje, mas mantém a view como fonte preferencial).
@@ -1668,11 +1681,19 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                 ).fetchone()
                 if drow:
                     dcols = [
-                        "tipo_divergencia", "subtipos_associados",
-                        "resultado_oficial", "resultado_calculado",
-                        "pontuacao_oficial", "pontuacao_calculada",
-                        "concorda_resultado", "concorda_pontuacao", "concorda_infracoes",
-                        "evidencia_suficiente", "encaminhamento", "detalhes", "created_at",
+                        "tipo_divergencia",
+                        "subtipos_associados",
+                        "resultado_oficial",
+                        "resultado_calculado",
+                        "pontuacao_oficial",
+                        "pontuacao_calculada",
+                        "concorda_resultado",
+                        "concorda_pontuacao",
+                        "concorda_infracoes",
+                        "evidencia_suficiente",
+                        "encaminhamento",
+                        "detalhes",
+                        "created_at",
                     ]
                     out["divergencia"] = dict(zip(dcols, drow))
             except Exception as e:

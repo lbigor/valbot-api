@@ -5813,9 +5813,7 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         "7_analise_detalhada": infracoes,
         "7b_comentarios_examinador": _train_ann_pdf,
         "7c_enquadramentos": enquadramentos,
-        "7d_eventos_sem_enquadramento": [
-            q for q in enquadramentos if q.get("enquadrado") is False
-        ],
+        "7d_eventos_sem_enquadramento": [q for q in enquadramentos if q.get("enquadrado") is False],
         "7e_compliance": compliance,
         # 8 — ANÁLISE DE DIVERGÊNCIA (motor de comparação) + OS
         "8_divergencia": {
