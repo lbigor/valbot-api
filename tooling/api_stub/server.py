@@ -1007,8 +1007,18 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "categoria": r.get("categoria"),
                 "unidade": r.get("local_unidade"),
                 "examinador": r.get("examinador"),
-                "tipo_divergencia": "resultado" if diverge else "concordante",
-                "tipo_label": "Divergência de resultado" if diverge else "Concordante",
+                # Sem oficial definitivo (pendente) NÃO é concordante nem divergente
+                # — é "Aguardando resultado oficial". Concordância só com oficial A/R.
+                "tipo_divergencia": (
+                    "pendente"
+                    if r.get("oficial_pendente")
+                    else ("resultado" if diverge else "concordante")
+                ),
+                "tipo_label": (
+                    "Aguardando resultado oficial"
+                    if r.get("oficial_pendente")
+                    else ("Divergência de resultado" if diverge else "Concordante")
+                ),
                 "status": "aguardando_supervisor",
                 "status_proc": status_proc,
                 "gate_rejected": bool(r.get("gate_rejected")),
