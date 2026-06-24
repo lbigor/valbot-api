@@ -170,95 +170,52 @@ def _laudo_deterministico(
     )
 
 
-def _gemini_rest_clip(
-    video: str, start_s: int, end_s: int, fps: int, prompt: str, system: str
+def _build_prompt_justificativa(
+    infracoes: list[dict], rubrica: str, bloco_mbedv: str
 ) -> str:
-    """Chama o Gemini via API REST NATIVA do Vertex com `videoMetadata.fps`.
+    """Prompt do Comitê: AMPARA a decisão do auditor explicando, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — sem reanalisar o vídeo (raciocina
+    sobre a evidência já capturada pela 1ª análise + a Matriz)."""
+    linhas = []
+    for it in infracoes:
+        rid = it.get("id") or it.get("codigo") or "?"
+        ts = it.get("timestamp_s") or it.get("ts_seconds")
+        ts_fmt = (
+            f"{int(ts) // 60:02d}:{int(ts) % 60:02d}"
+            if isinstance(ts, (int, float))
+            else "??:??"
+        )
+        ev = it.get("evidence") or it.get("descricao") or ""
+        linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
+    lista = "\n".join(linhas) if linhas else "  (nenhuma infração apontada)"
 
-    O SDK instalado (google-genai 1.2.0) não expõe `fps` no VideoMetadata; a API
-    REST aceita (campo documentado). Recorta [start_s, end_s] e amostra a `fps`
-    quadros/segundo — resolução temporal fina para validar paradas breves.
-    Devolve o texto (JSON) da resposta do modelo. Levanta em erro de transporte.
-    """
-    import urllib.request
+    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}). Sua função é \
+AMPARAR a decisão do auditor humano: para CADA infração detectada pela 1ª análise, \
+explique com clareza e fundamentação o MOTIVO de ela ter sido aplicada — ou aponte \
+por que NÃO se sustenta. Você NÃO decide pelo humano e NÃO reanalisa o vídeo: \
+raciocina sobre a evidência registrada e a Matriz MBEDV.
 
-    import google.auth
-    import google.auth.transport.requests
+INFRAÇÕES DETECTADAS (id @ timestamp — evidência):
+{lista}
 
-    creds, _ = google.auth.default()
-    creds.refresh(google.auth.transport.requests.Request())
-    loc = settings.vertex_location or "global"
-    host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
-    url = (
-        f"https://{host}/v1/projects/{settings.vertex_project}/locations/{loc}"
-        f"/publishers/google/models/{settings.vertex_model}:generateContent"
-    )
-    body = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "fileData": {"fileUri": str(video), "mimeType": "video/mp4"},
-                        "videoMetadata": {
-                            "fps": fps,
-                            "startOffset": f"{start_s}s",
-                            "endOffset": f"{end_s}s",
-                        },
-                    },
-                    {"text": prompt},
-                ],
-            }
-        ],
-        "systemInstruction": {"parts": [{"text": system}]},
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "temperature": 0.1,
-            "maxOutputTokens": 1024,
-        },
-    }
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode(),
-        headers={
-            "Authorization": f"Bearer {creds.token}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        resp = json.load(r)
-    cand = (resp.get("candidates") or [{}])[0]
-    return "".join(p.get("text", "") for p in (cand.get("content", {}).get("parts") or []))
-
-
-def _build_prompt_clip(
-    infr: dict, rubrica: str, bloco_mbedv: str, start_s: int, end_s: int
-) -> str:
-    """Prompt do Comitê para validar UMA infração observando só o seu clipe."""
-    rid = infr.get("id") or infr.get("codigo") or "?"
-    ev = infr.get("evidence") or infr.get("descricao") or ""
-    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}). Este clipe é o \
-trecho {start_s}s–{end_s}s do vídeo do exame, amostrado a 3 quadros/segundo \
-(resolução temporal fina — você consegue ver paradas breves).
-
-A 1ª análise apontou ESTA infração neste ponto:
-  • {rid} — "{ev}"
-
-Reexamine APENAS este clipe, quadro a quadro, à luz da Matriz MBEDV abaixo:
+Para CADA infração, à luz da Matriz MBEDV abaixo, produza:
+  - motivo: por que a conduta caracteriza (ou não) a falta, em linguagem clara e objetiva.
+  - conduta_observavel: o que o candidato fez (ou deixou de fazer) que configura a falta.
+  - base_legal: o artigo CTB + a ficha MBEDV + gravidade/peso.
+  - excecao_aplicavel: se alguma condição de "NÃO pontua" da ficha se aplica — qual, ou "nenhuma".
+  - veredicto: "sustenta" | "nao_sustenta" | "revisar" (exige olho humano).
+  - confianca: 0.0 a 1.0.
 
 {bloco_mbedv}
 
-Decida se a infração SE CONFIRMA. Se em QUALQUER quadro a conduta exigida ocorre \
-(ex.: parada obrigatória — o veículo aparece TOTALMENTE imóvel, rodas paradas, na \
-faixa de retenção antes do cruzamento), então NÃO confirme. Na dúvida sobre a \
-imobilização total, "nao_confirmada" (benefício da dúvida ao candidato).
-
-resultado ∈ {{"infracao_confirmada", "excecao_aplicavel", "nao_confirmada"}}.
-
 DEVOLVA SOMENTE JSON:
-{{"resultado": "...", "evidencia": "o que viu, com o segundo exato", \
-"interpretacao_normativa": "...", "confianca": 0.0}}
+{{
+  "infracoes": [
+    {{"id": "...", "motivo": "...", "conduta_observavel": "...", "base_legal": "...",
+      "excecao_aplicavel": "...", "veredicto": "sustenta|nao_sustenta|revisar", "confianca": 0.0}}
+  ],
+  "recomendacao_para_auditor": "síntese objetiva que ampara a decisão do auditor"
+}}
 """
 
 
@@ -271,14 +228,15 @@ def revisar(
     deteccao: SaidaDeteccao,
     rubrica: str = "1020/2025",
 ) -> LaudoComite:
-    """Executa o Comitê por CLIPE: para cada infração, recorta [t-3s, t+3s] e
-    valida a 3fps (REST nativo) se a conduta de fato ocorreu naquele timestamp.
+    """Executa o Comitê como MOTOR DE JUSTIFICATIVA: explica, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — para amparar a decisão do auditor.
 
-    Grounding fino evita a alucinação de timestamps do reexame do vídeo inteiro.
-    Em falha total das chamadas, cai no laudo determinístico. Nunca levanta."""
+    NÃO reanalisa o vídeo (1 chamada de TEXTO, barata; a evidência da 1ª análise é
+    o insumo). Em falha, cai no laudo determinístico. Nunca levanta. `video` é
+    mantido por compatibilidade de assinatura (não usado)."""
     started = time.monotonic()
 
-    if not settings.comite_habilitado or not video or not infracoes_detectadas:
+    if not settings.comite_habilitado or not infracoes_detectadas:
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
 
     try:
@@ -286,73 +244,87 @@ def revisar(
     except Exception:  # pragma: no cover — sem banco/seed
         bloco_mbedv = ""
 
-    system = (
-        "Você é o Comitê de IA do Val Auditor: valida UMA infração observando só o "
-        "clipe do timestamp, com rigor; jamais decide pelo humano; na dúvida refuta."
-    )
+    try:
+        import vertexai
+        from vertexai.generative_models import GenerationConfig, GenerativeModel
 
-    causas: list[CausaIdentificada] = []
-    verifs: list[VerificacaoComite] = []
-    erros = 0
-    for it in infracoes_detectadas:
-        ts_raw = it.get("timestamp_s") or it.get("ts_seconds") or 0
-        try:
-            ts = float(ts_raw)
-        except (TypeError, ValueError):
-            ts = 0.0
-        start = max(0, int(ts) - 3)
-        end = int(ts) + 3
-        prompt = _build_prompt_clip(it, rubrica, bloco_mbedv, start, end)
-        try:
-            raw = _parse_json(_gemini_rest_clip(str(video), start, end, 3, prompt, system))
-        except Exception as e:  # noqa: BLE001 — resiliente por clipe
-            erros += 1
-            log.warning("comite clip falhou exame=%s ts=%s: %s", exame_id, ts, e)
-            raw = {}
-        res = raw.get("resultado", "nao_confirmada")
-        causas.append(
-            CausaIdentificada(
-                causa=str(it.get("descricao") or it.get("id") or ""),
-                evidencia=raw.get("evidencia", ""),
-                interpretacao_normativa=raw.get("interpretacao_normativa", ""),
-                confianca_causa=float(raw.get("confianca") or 0.0),
-            )
+        vertexai.init(project=settings.vertex_project, location=settings.vertex_location)
+        model = GenerativeModel(
+            settings.vertex_model,
+            system_instruction=(
+                "Você é o Comitê de IA do Val Auditor: AMPARA a decisão do auditor "
+                "humano explicando, com fundamentação MBEDV, o motivo de cada infração "
+                "detectada. Rigor e clareza; jamais decide pelo humano."
+            ),
         )
-        verifs.append(
-            VerificacaoComite(
-                regra=str(it.get("id") or ""),
-                segmento=f"{start}s-{end}s",
-                resultado=res,
-            )
+        prompt = _build_prompt_justificativa(infracoes_detectadas, rubrica, bloco_mbedv)
+        resp = model.generate_content(
+            [prompt],
+            generation_config=GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0.1,
+                max_output_tokens=4096,
+            ),
         )
-
-    # Todas as chamadas falharam → não inventa: cai no determinístico.
-    if erros and erros == len(infracoes_detectadas):
-        log.warning("comite exame=%s: todas as chamadas de clipe falharam", exame_id)
+        raw = _parse_json(resp.text)
+        laudo = _laudo_de_justificativa(exame_id, comparacao, raw, time.monotonic() - started)
+        log.info(
+            "comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas)
+        )
+        return laudo
+    except Exception as e:  # pragma: no cover — fallback resiliente
+        log.warning("comite Gemini falhou exame=%s (%s) — determinístico", exame_id, e)
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
 
-    confirmadas = sum(1 for v in verifs if v.resultado == "infracao_confirmada")
+
+def _laudo_de_justificativa(
+    exame_id: str, comparacao: Comparacao, raw: dict, tempo: float
+) -> LaudoComite:
+    """Mapeia o JSON de justificativas → LaudoComite. Cada infração vira uma
+    CausaIdentificada (conduta + MOTIVO + base legal) e uma VerificacaoComite
+    (veredicto sustenta/nao_sustenta/revisar)."""
+    infs = [i for i in (raw.get("infracoes") or []) if isinstance(i, dict)]
+    causas = [
+        CausaIdentificada(
+            causa=str(i.get("conduta_observavel") or i.get("id") or ""),
+            evidencia=str(i.get("motivo") or ""),
+            interpretacao_normativa=(
+                str(i.get("base_legal") or "")
+                + (
+                    f" · Exceção: {i.get('excecao_aplicavel')}"
+                    if i.get("excecao_aplicavel")
+                    and str(i.get("excecao_aplicavel")).strip().lower() not in ("nenhuma", "")
+                    else ""
+                )
+            ),
+            confianca_causa=float(i.get("confianca") or 0.0),
+        )
+        for i in infs
+    ]
+    verifs = [
+        VerificacaoComite(
+            regra=str(i.get("id") or ""),
+            segmento=str(i.get("base_legal") or ""),
+            resultado=str(i.get("veredicto") or "revisar"),
+        )
+        for i in infs
+    ]
+    sustenta = sum(1 for i in infs if str(i.get("veredicto")) == "sustenta")
     conclusao = (
         "concorda_com_examinador"
-        if verifs and confirmadas == len(verifs)
+        if infs and sustenta == len(infs)
         else "manter_divergencia_com_fundamentacao"
-    )
-    log.info(
-        "comite exame=%s clipes=%d confirmadas=%d", exame_id, len(verifs), confirmadas
     )
     return LaudoComite(
         exame_id=exame_id,
-        comite_versao=settings.comite_versao + "+clip3fps",
-        tempo_processamento_seg=round(time.monotonic() - started, 2),
+        comite_versao=settings.comite_versao + "+justificativa",
+        tempo_processamento_seg=round(tempo, 2),
         tipo_divergencia_analisada=comparacao.tipo_divergencia,
         tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
         causas_identificadas=causas,
         verificacoes_executadas=verifs,
         comentarios_examinador_detectados=[],
-        recomendacao_para_auditor=(
-            f"{confirmadas}/{len(verifs)} infrações confirmadas no reexame por "
-            f"clipe a 3fps (resolução temporal fina por timestamp)."
-        ),
+        recomendacao_para_auditor=str(raw.get("recomendacao_para_auditor") or ""),
         conclusao_comite=conclusao,
     )
 
