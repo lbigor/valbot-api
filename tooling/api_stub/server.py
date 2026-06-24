@@ -957,8 +957,9 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     # Fila do auditor E do supervisor: vídeos a partir da data de corte, apenas
     # da categoria B (1ª habilitação — o que entra no fluxo de auditoria). Não
     # só as divergências; cada exame ganha um sinalizador de status. Corte e
-    # categoria configuráveis por env; default 23/06/2026 + B.
-    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-23")
+    # categoria configuráveis por env; default 13/06/2026 + B (inclui a semana
+    # passada — exames de 13-14/06, já com resultado oficial — além da atual).
+    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
     fila_categoria = os.environ.get("VALBOT_FILA_CATEGORIA", "B")
     rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
     items = []
