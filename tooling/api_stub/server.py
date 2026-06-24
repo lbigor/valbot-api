@@ -2587,6 +2587,89 @@ def _enqueue_reanalysis(
     return {"analysis_id": analysis_id, "status": "queued", "video_ref": video_ref}
 
 
+def _buscar_resultado_techpratico(hash_: str) -> dict:
+    """Busca o resultado OFICIAL do exame no TechPrático (inbound) e persiste.
+
+    POST /conversao/dados-exame-analise-ia {idAgendamento=external_id, id_analise=hash}.
+    Salva `resultado_exame` (cofre — COALESCE, nunca apaga) + `training_annotations`
+    em `exams`. Devolve o status por exame (ok | sem_idagendamento | erro*).
+    """
+    import urllib.error
+    import urllib.request
+
+    row = db.fetch_one("SELECT external_id FROM exams WHERE hash = %s", (hash_,))
+    if not row:
+        return {"hash": hash_, "status": "nao_encontrado"}
+    ext = row.get("external_id")
+    if not ext:
+        # idAgendamento não foi salvo na ingestão (exame antigo) — nada a buscar.
+        return {"hash": hash_, "status": "sem_idagendamento"}
+
+    base = os.environ.get("VALBOT_TECHPRATICO_BASE", "https://convert.se.techpratico.net")
+    headers = {"Content-Type": "application/json"}
+    key = os.environ.get("VALBOT_TECHPRATICO_API_KEY", "")
+    if key:
+        headers["X-API-Key"] = key
+    payload = json.dumps({"idAgendamento": int(ext), "id_analise": hash_}).encode()
+    req = urllib.request.Request(
+        base + "/conversao/dados-exame-analise-ia",
+        data=payload,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = json.load(r)
+    except urllib.error.HTTPError as e:
+        return {
+            "hash": hash_,
+            "status": "erro_http",
+            "code": e.code,
+            "msg": e.read().decode()[:200],
+        }
+    except Exception as e:
+        return {"hash": hash_, "status": "erro", "msg": str(e)[:200]}
+
+    resultado = resp.get("resultado_exame")
+    annots = resp.get("training_annotations") or []
+    sets = ["training_annotations = %s"]
+    vals: list = [db.to_jsonb(annots)]
+    if resultado:
+        sets.append("resultado_exame = COALESCE(%s, resultado_exame)")
+        vals.append(resultado)
+    vals.append(hash_)
+    try:
+        with db._conn() as c:  # type: ignore[attr-defined]
+            if c is not None:
+                c.execute(f"UPDATE exams SET {', '.join(sets)} WHERE hash = %s", vals)
+    except Exception as e:
+        return {"hash": hash_, "status": "erro_persist", "msg": str(e)[:200]}
+    return {
+        "hash": hash_,
+        "status": "ok",
+        "resultado_exame": resultado,
+        "n_annotations": len(annots),
+    }
+
+
+@app.post("/api/exams/{hash}/buscar-resultado")
+def exam_buscar_resultado(hash: str, _sess: dict = Depends(require_session)):
+    """Busca o resultado oficial do exame no TechPrático e persiste (single)."""
+    return _buscar_resultado_techpratico(hash)
+
+
+class _BuscarResultadosIn(BaseModel):
+    hashes: list[str] = Field(default_factory=list, description="Hashes dos exames a buscar.")
+
+
+@app.post("/api/exams/buscar-resultados")
+def exams_buscar_resultados(body: _BuscarResultadosIn, _sess: dict = Depends(require_session)):
+    """Busca em LOTE o resultado oficial no TechPrático (usado pelo Kanban)."""
+    res = [_buscar_resultado_techpratico(h) for h in body.hashes[:500]]
+    ok = sum(1 for r in res if r.get("status") == "ok")
+    return {"total": len(res), "ok": ok, "resultados": res}
+
+
 @app.post("/api/exams/{analysis_id}/reanalyze")
 def reanalyze_exam(
     analysis_id: str,
