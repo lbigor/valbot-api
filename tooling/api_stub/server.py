@@ -973,7 +973,8 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
         aberta_em = r.get("created_at")
         # SLA: aberta_em + prazo do auditor (default 24h). Null se sem abertura.
         sla_due_at = _add_hours(aberta_em, db.SLA_PRAZO_AUDITOR_H)
-        video_ok = _derive_video_ok(r)
+        # video_ok agora é canônico da view (migration 028); fallback p/ janela de deploy.
+        video_ok = r.get("video_ok") if "video_ok" in r else _derive_video_ok(r)
         # Sinalizador de estágio de processamento do vídeo (sempre presente).
         _st = (r.get("status") or "").strip().lower()
         if r.get("gate_rejected"):
@@ -1020,6 +1021,7 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 # conduta agora saem do core, sem query de enriquecimento à parte.
                 "conduta_inadequada": bool(r.get("conduta_inadequada")),
                 "video_ok": video_ok,
+                "tem_anotacoes": bool(r.get("tem_anotacoes")),
                 "comite_concluido": bool(r.get("comite_concluido")),
             }
         )
@@ -3615,6 +3617,13 @@ def dashboard_valbot(
         "divergencia_por_examinador": [],
         "divergencia_por_unidade": [],
         "divergencia_por_categoria": [],
+        # Indicador "recebidos × resultado oficial × anotações" (totais do período).
+        "recebidos_total": 0,
+        "com_oficial_total": 0,
+        "oficial_aprovado_total": 0,
+        "oficial_reprovado_total": 0,
+        "aguardando_oficial_total": 0,
+        "com_anotacoes_total": 0,
         "volume_14d": [],
     }
     try:
@@ -3691,19 +3700,54 @@ def dashboard_valbot(
             out["divergencia_por_unidade"] = _div_por("local_unidade", "unidade")
             out["divergencia_por_categoria"] = _div_por("categoria", "categoria")
 
-            # Com período selecionado → série dentro do período; senão, últimos 14 dias.
+            # Indicador "recebidos × resultado oficial × anotações" — da view
+            # canônica (v_exams_overview, migrations 027/028). Fonte única.
+            vbase = f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
+            trow = c.execute(
+                f"SELECT COUNT(*), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
+                f"COUNT(*) FILTER (WHERE oficial_pendente), "
+                f"COUNT(*) FILTER (WHERE tem_anotacoes) "
+                f"{vbase}"
+            ).fetchone()
+            out["recebidos_total"] = int(trow[0] or 0)
+            out["com_oficial_total"] = int(trow[1] or 0)
+            out["oficial_aprovado_total"] = int(trow[2] or 0)
+            out["oficial_reprovado_total"] = int(trow[3] or 0)
+            out["aguardando_oficial_total"] = int(trow[4] or 0)
+            out["com_anotacoes_total"] = int(trow[5] or 0)
+
+            # Série diária. Com período → dentro do período; senão, últimos 14 dias.
             vol_where = (
-                base if has_range else f"{base} AND created_at >= NOW() - INTERVAL '14 days'"
+                vbase if has_range else f"{vbase} AND created_at >= NOW() - INTERVAL '14 days'"
             )
             vrows = c.execute(
                 f"SELECT to_char(date_trunc('day', created_at), 'DD/MM') AS dia, "
-                f"COUNT(*), COUNT(*) FILTER (WHERE status='processed') "
+                f"COUNT(*), "
+                f"COUNT(*) FILTER (WHERE status='processed'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
+                f"COUNT(*) FILTER (WHERE oficial_pendente), "
+                f"COUNT(*) FILTER (WHERE tem_anotacoes) "
                 f"{vol_where} "
                 f"GROUP BY 1, date_trunc('day', created_at) "
                 f"ORDER BY date_trunc('day', created_at)"
             ).fetchall()
             out["volume_14d"] = [
-                {"dia": r[0], "recebidos": int(r[1]), "processados": int(r[2])} for r in vrows
+                {
+                    "dia": r[0],
+                    "recebidos": int(r[1]),
+                    "processados": int(r[2]),
+                    "com_oficial": int(r[3]),
+                    "aprovados": int(r[4]),
+                    "reprovados": int(r[5]),
+                    "aguardando": int(r[6]),
+                    "com_anotacoes": int(r[7]),
+                }
+                for r in vrows
             ]
     except Exception as e:
         log.warning("dashboard_valbot falhou: %s", e)
