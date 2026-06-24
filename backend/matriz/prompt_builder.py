@@ -38,6 +38,34 @@ def _aplica_categoria(regra: dict, categoria: str | None) -> bool:
     return not cats or categoria.upper() in cats
 
 
+# Diretrizes de avaliação do Val Auditor — camada de INTERPRETAÇÃO para a IA,
+# separada da ficha oficial MBEDV (não altera o texto normativo). Corrigem falsos
+# positivos conhecidos por limitação do motor de visão: o vídeo é amostrado a ~1
+# quadro/segundo, então uma imobilização breve pode não aparecer entre os quadros.
+# Chave = número do artigo CTB.
+_DIRETRIZES_VAL: dict[str, str] = {
+    "208": (
+        "Benefício da dúvida na PARADA OBRIGATÓRIA: só pontue se houver evidência "
+        "INEQUÍVOCA de movimento contínuo cruzando a faixa de retenção SEM parar. "
+        "O vídeo é amostrado a ~1 quadro por segundo, então uma parada completa "
+        "breve (1–2 s) pode não aparecer entre os quadros — ver o veículo em "
+        "movimento logo antes e logo depois NÃO prova que não houve parada. Na "
+        "dúvida sobre a imobilização total, NÃO pontue (benefício da dúvida ao "
+        "candidato)."
+    ),
+}
+
+
+def _diretriz_val(artigo_ctb: str | None) -> str | None:
+    """Diretriz operacional do Val Auditor para o artigo (casada por número)."""
+    if not artigo_ctb:
+        return None
+    import re
+
+    m = re.search(r"(\d+)", str(artigo_ctb))
+    return _DIRETRIZES_VAL.get(m.group(1)) if m else None
+
+
 def construir_bloco(categoria: str | None = None) -> tuple[str, str]:
     """Monta o bloco textual das regras a avaliar (filtrado por categoria CNH).
 
@@ -81,5 +109,10 @@ def construir_bloco(categoria: str | None = None) -> tuple[str, str]:
                 f"Como avaliar (definições e procedimentos): "
                 f"{str(r['comentario_juridico']).strip()}"
             )
+        # Diretriz operacional do Val Auditor (interpretação p/ a IA; NÃO altera a
+        # ficha oficial) — corrige falso positivo conhecido por amostragem de vídeo.
+        dir_val = _diretriz_val(r.get("artigo_ctb"))
+        if dir_val:
+            linhas.append(f"Diretriz de avaliação (Val Auditor): {dir_val}")
         linhas.append("")
     return "\n".join(linhas), versao
