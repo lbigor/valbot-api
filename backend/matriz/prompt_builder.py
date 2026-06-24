@@ -66,14 +66,32 @@ def _diretriz_val(artigo_ctb: str | None) -> str | None:
     return _DIRETRIZES_VAL.get(m.group(1)) if m else None
 
 
-def construir_bloco(categoria: str | None = None) -> tuple[str, str]:
+def _num_ctb(artigo: str | None) -> str:
+    """Extrai o número do artigo CTB (ex.: 'Art. 252, V' → '252')."""
+    import re
+
+    m = re.search(r"(\d+)", str(artigo or ""))
+    return m.group(1) if m else ""
+
+
+def construir_bloco(
+    categoria: str | None = None, artigos: set[str] | list[str] | None = None
+) -> tuple[str, str]:
     """Monta o bloco textual das regras a avaliar (filtrado por categoria CNH).
 
     Devolve (texto_do_bloco, matriz_versao). Cada regra vira um item com artigo,
     natureza/peso, condutas que pontuam e — crítico — condutas que NÃO pontuam.
+
+    Se ``artigos`` for informado (ex.: os artigos das infrações detectadas), o
+    bloco é RESTRITO a essas fichas — encolhe o prompt do Comitê (que só precisa
+    das fichas em julgamento), evitando estourar o tamanho do pedido.
     """
     regras, versao = _regras_vigentes()
     aplicaveis = [r for r in regras if _aplica_categoria(r, categoria)]
+    if artigos:
+        nums = {_num_ctb(a) for a in artigos if _num_ctb(a)}
+        if nums:
+            aplicaveis = [r for r in aplicaveis if _num_ctb(r.get("artigo_ctb")) in nums]
 
     linhas = [
         f"MATRIZ NACIONAL DE REGRAS — versão {versao} (fonte: MBEDV/CTB).",

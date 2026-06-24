@@ -235,8 +235,13 @@ def revisar(
     if not settings.comite_habilitado or not infracoes_detectadas:
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
 
+    # Matriz RESTRITA às fichas dos artigos detectados — o Comitê só julga essas;
+    # encolhe o prompt e evita estourar o tamanho do pedido em exames com muitas
+    # infrações (que antes caíam no laudo determinístico).
+    artigos = {str(it.get("id") or it.get("codigo") or "") for it in infracoes_detectadas}
+    artigos = {a for a in artigos if a}
     try:
-        bloco_mbedv, _versao = prompt_builder.construir_bloco(None)
+        bloco_mbedv, _versao = prompt_builder.construir_bloco(None, artigos=artigos)
     except Exception:  # pragma: no cover — sem banco/seed
         bloco_mbedv = ""
 
