@@ -1858,6 +1858,9 @@ def _build_meta_batch(item: InitUploadItem, analysis_id: str, ct: str, blob_name
         },
         "training_annotations": [a.model_dump() for a in item.training_annotations],
         "external_id": item.id,
+        # Payload BRUTO completo do item recebido — paridade com _build_meta_legacy.
+        # Nunca mais perder campo que o integrador mande (idAgendamento, etc.).
+        "raw": item.model_dump(mode="json"),
         # Veredito presencial do examinador (vem da integração — COFRE imutável).
         "resultado_exame": item.resultado_exame,
         "engine": {
