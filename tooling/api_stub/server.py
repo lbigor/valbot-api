@@ -2653,8 +2653,9 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
 
     resultado = resp.get("resultado_exame")
     annots = resp.get("training_annotations") or []
-    sets = ["training_annotations = %s"]
-    vals: list = [db.to_jsonb(annots)]
+    # db não tem to_jsonb — serializa e faz cast ::jsonb no UPDATE.
+    sets = ["training_annotations = %s::jsonb"]
+    vals: list = [json.dumps(annots)]
     if resultado:
         sets.append("resultado_exame = COALESCE(%s, resultado_exame)")
         vals.append(resultado)
