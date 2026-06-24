@@ -2614,10 +2614,14 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
     import urllib.error
     import urllib.request
 
-    row = db.fetch_one("SELECT external_id FROM exams WHERE hash = %s", (hash_,))
-    if not row:
+    # Lê o external_id (idAgendamento) via _conn() — db não tem fetch_one.
+    with db._conn() as _c:  # type: ignore[attr-defined]
+        if _c is None:
+            return {"hash": hash_, "status": "db_off"}
+        _r = _c.execute("SELECT external_id FROM exams WHERE hash = %s", (hash_,)).fetchone()
+    if _r is None:
         return {"hash": hash_, "status": "nao_encontrado"}
-    ext = row.get("external_id")
+    ext = _r[0]
     if not ext:
         # idAgendamento não foi salvo na ingestão (exame antigo) — nada a buscar.
         return {"hash": hash_, "status": "sem_idagendamento"}
