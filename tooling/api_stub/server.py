@@ -964,10 +964,11 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
     items = []
     for r in rows:
-        of = (r.get("resultado_exame") or "").strip().upper()
-        ap = r.get("aprovado")
-        diverge = (of == "A" and ap is False) or (of == "R" and ap is True)
-        rc = "A" if ap is True else ("R" if ap is False else None)
+        # Campos canônicos vêm da view (v_exams_overview, migration 027) — fonte
+        # única. Oficial só é definitivo se A/R; None ⇒ pendente. Sem rederivar.
+        of = r.get("resultado_oficial")  # 'A' | 'R' | None (None ⇒ oficial pendente)
+        diverge = bool(r.get("divergente"))
+        rc = r.get("resultado_calculado")
         h = r.get("hash")
         aberta_em = r.get("created_at")
         # SLA: aberta_em + prazo do auditor (default 24h). Null se sem abertura.
@@ -1004,7 +1005,9 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "status_proc": status_proc,
                 "gate_rejected": bool(r.get("gate_rejected")),
                 "divergente": diverge,
-                "resultado_oficial": of or None,
+                "resultado_oficial": of,
+                "oficial_pendente": bool(r.get("oficial_pendente")),
+                "stage": r.get("stage"),
                 "resultado_calculado": rc,
                 "pontuacao_oficial": None,
                 "pontuacao_calculada": r.get("pontuacao_total"),
@@ -1013,23 +1016,13 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "aberta_em": aberta_em,
                 "sla_due_at": sla_due_at,
                 "conf": None,
-                # Sinalizadores derivados de dados já existentes no banco.
-                "conduta_inadequada": None,  # preenchido abaixo (compliance)
+                # Sinalizadores canônicos da view (migration 027) — comitê e
+                # conduta agora saem do core, sem query de enriquecimento à parte.
+                "conduta_inadequada": bool(r.get("conduta_inadequada")),
                 "video_ok": video_ok,
-                "comite_concluido": None,  # preenchido abaixo (comitê)
+                "comite_concluido": bool(r.get("comite_concluido")),
             }
         )
-    # Enriquece com sinais que não estão na view (compliance + comitê), em uma
-    # query batelada por hash. Ausência de dado ⇒ permanece null.
-    try:
-        enr = db.os_enrichment([i["exam_hash"] for i in items]) or {}
-        for i in items:
-            sig = enr.get(i["exam_hash"])
-            if sig:
-                i["conduta_inadequada"] = sig.get("conduta_inadequada")
-                i["comite_concluido"] = sig.get("comite_concluido")
-    except Exception as e:
-        log.warning("list_os_v2 enrichment falhou: %s", e)
     if status:
         items = [i for i in items if i["status"] == status]
     return {"count": len(items), "items": items, "source": "db"}
