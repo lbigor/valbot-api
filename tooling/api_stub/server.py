@@ -555,7 +555,14 @@ _SPA_READ_RE = re.compile(
 # no endpoint por Depends(require_session) — exigem cookie de login válido.
 # Ou seja: não são públicas, só não usam o token admin secreto.
 _SPA_ACTION_RE = re.compile(
-    r"^/api/exams/(?:[^/]+/reanalyze|process-pending|enviar-laudos|[^/]+/parecer-auditor)$"
+    r"^/api/exams/(?:"
+    r"[^/]+/reanalyze"
+    r"|[^/]+/buscar-resultado"  # busca single do resultado oficial (TechPrático)
+    r"|buscar-resultados"  # busca em LOTE (botão "Buscar lote" do Kanban)
+    r"|process-pending"
+    r"|enviar-laudos"
+    r"|[^/]+/parecer-auditor"
+    r")$"
 )
 # Telas de Gestão (Usuários, Relatórios, Medição, Cron/Batch, Supervisor) —
 # todas protegidas por Depends(require_session) no endpoint; aqui só dispensamos
