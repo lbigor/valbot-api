@@ -170,6 +170,51 @@ def _laudo_deterministico(
     )
 
 
+def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv: str) -> str:
+    """Prompt do Comitê: AMPARA a decisão do auditor explicando, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — sem reanalisar o vídeo (raciocina
+    sobre a evidência já capturada pela 1ª análise + a Matriz)."""
+    linhas = []
+    for it in infracoes:
+        rid = it.get("id") or it.get("codigo") or "?"
+        ts = it.get("timestamp_s") or it.get("ts_seconds")
+        ts_fmt = (
+            f"{int(ts) // 60:02d}:{int(ts) % 60:02d}" if isinstance(ts, (int, float)) else "??:??"
+        )
+        ev = it.get("evidence") or it.get("descricao") or ""
+        linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
+    lista = "\n".join(linhas) if linhas else "  (nenhuma infração apontada)"
+
+    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}). Sua função é \
+AMPARAR a decisão do auditor humano: para CADA infração detectada pela 1ª análise, \
+explique com clareza e fundamentação o MOTIVO de ela ter sido aplicada — ou aponte \
+por que NÃO se sustenta. Você NÃO decide pelo humano e NÃO reanalisa o vídeo: \
+raciocina sobre a evidência registrada e a Matriz MBEDV.
+
+INFRAÇÕES DETECTADAS (id @ timestamp — evidência):
+{lista}
+
+Para CADA infração, à luz da Matriz MBEDV abaixo, produza:
+  - motivo: por que a conduta caracteriza (ou não) a falta, em linguagem clara e objetiva.
+  - conduta_observavel: o que o candidato fez (ou deixou de fazer) que configura a falta.
+  - base_legal: o artigo CTB + a ficha MBEDV + gravidade/peso.
+  - excecao_aplicavel: se alguma condição de "NÃO pontua" da ficha se aplica — qual, ou "nenhuma".
+  - veredicto: "sustenta" | "nao_sustenta" | "revisar" (exige olho humano).
+  - confianca: 0.0 a 1.0.
+
+{bloco_mbedv}
+
+DEVOLVA SOMENTE JSON:
+{{
+  "infracoes": [
+    {{"id": "...", "motivo": "...", "conduta_observavel": "...", "base_legal": "...",
+      "excecao_aplicavel": "...", "veredicto": "sustenta|nao_sustenta|revisar", "confianca": 0.0}}
+  ],
+  "recomendacao_para_auditor": "síntese objetiva que ampara a decisão do auditor"
+}}
+"""
+
+
 def revisar(
     video: str | None,
     *,
@@ -179,30 +224,38 @@ def revisar(
     deteccao: SaidaDeteccao,
     rubrica: str = "1020/2025",
 ) -> LaudoComite:
-    """Executa o Comitê. Tenta a 2ª chamada Gemini focada; em falha, cai no
-    laudo determinístico. Sempre devolve um laudo (nunca levanta)."""
+    """Executa o Comitê como MOTOR DE JUSTIFICATIVA: explica, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — para amparar a decisão do auditor.
+
+    NÃO reanalisa o vídeo (1 chamada de TEXTO, barata; a evidência da 1ª análise é
+    o insumo). Em falha, cai no laudo determinístico. Nunca levanta. `video` é
+    mantido por compatibilidade de assinatura (não usado)."""
     started = time.monotonic()
 
-    if not settings.comite_habilitado or not video or not infracoes_detectadas:
+    if not settings.comite_habilitado or not infracoes_detectadas:
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
 
     try:
-        import vertexai
-        from vertexai.generative_models import GenerationConfig, GenerativeModel, Part
+        bloco_mbedv, _versao = prompt_builder.construir_bloco(None)
+    except Exception:  # pragma: no cover — sem banco/seed
+        bloco_mbedv = ""
 
-        prompt = _build_prompt_comite(infracoes_detectadas, rubrica)
+    try:
+        import vertexai
+        from vertexai.generative_models import GenerationConfig, GenerativeModel
+
         vertexai.init(project=settings.vertex_project, location=settings.vertex_location)
         model = GenerativeModel(
             settings.vertex_model,
             system_instruction=(
-                "Você é o Comitê de IA do Val Auditor: aprofunda divergências com "
-                "rigor, jamais decide pelo humano, jamais reverte a divergência. "
-                "Foca apenas nas infrações recebidas."
+                "Você é o Comitê de IA do Val Auditor: AMPARA a decisão do auditor "
+                "humano explicando, com fundamentação MBEDV, o motivo de cada infração "
+                "detectada. Rigor e clareza; jamais decide pelo humano."
             ),
         )
-        part = Part.from_uri(str(video), mime_type="video/mp4")
+        prompt = _build_prompt_justificativa(infracoes_detectadas, rubrica, bloco_mbedv)
         resp = model.generate_content(
-            [part, prompt],
+            [prompt],
             generation_config=GenerationConfig(
                 response_mime_type="application/json",
                 temperature=0.1,
@@ -210,12 +263,64 @@ def revisar(
             ),
         )
         raw = _parse_json(resp.text)
-        laudo = _laudo_de_raw(exame_id, comparacao, raw, time.monotonic() - started)
-        log.info("comite exame=%s causas=%d", exame_id, len(laudo.causas_identificadas))
+        laudo = _laudo_de_justificativa(exame_id, comparacao, raw, time.monotonic() - started)
+        log.info("comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas))
         return laudo
     except Exception as e:  # pragma: no cover — fallback resiliente
-        log.warning("comite Gemini falhou exame=%s (%s) — laudo determinístico", exame_id, e)
+        log.warning("comite Gemini falhou exame=%s (%s) — determinístico", exame_id, e)
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+
+
+def _laudo_de_justificativa(
+    exame_id: str, comparacao: Comparacao, raw: dict, tempo: float
+) -> LaudoComite:
+    """Mapeia o JSON de justificativas → LaudoComite. Cada infração vira uma
+    CausaIdentificada (conduta + MOTIVO + base legal) e uma VerificacaoComite
+    (veredicto sustenta/nao_sustenta/revisar)."""
+    infs = [i for i in (raw.get("infracoes") or []) if isinstance(i, dict)]
+    causas = [
+        CausaIdentificada(
+            causa=str(i.get("conduta_observavel") or i.get("id") or ""),
+            evidencia=str(i.get("motivo") or ""),
+            interpretacao_normativa=(
+                str(i.get("base_legal") or "")
+                + (
+                    f" · Exceção: {i.get('excecao_aplicavel')}"
+                    if i.get("excecao_aplicavel")
+                    and str(i.get("excecao_aplicavel")).strip().lower() not in ("nenhuma", "")
+                    else ""
+                )
+            ),
+            confianca_causa=float(i.get("confianca") or 0.0),
+        )
+        for i in infs
+    ]
+    verifs = [
+        VerificacaoComite(
+            regra=str(i.get("id") or ""),
+            segmento=str(i.get("base_legal") or ""),
+            resultado=str(i.get("veredicto") or "revisar"),
+        )
+        for i in infs
+    ]
+    sustenta = sum(1 for i in infs if str(i.get("veredicto")) == "sustenta")
+    conclusao = (
+        "concorda_com_examinador"
+        if infs and sustenta == len(infs)
+        else "manter_divergencia_com_fundamentacao"
+    )
+    return LaudoComite(
+        exame_id=exame_id,
+        comite_versao=settings.comite_versao + "+justificativa",
+        tempo_processamento_seg=round(tempo, 2),
+        tipo_divergencia_analisada=comparacao.tipo_divergencia,
+        tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
+        causas_identificadas=causas,
+        verificacoes_executadas=verifs,
+        comentarios_examinador_detectados=[],
+        recomendacao_para_auditor=str(raw.get("recomendacao_para_auditor") or ""),
+        conclusao_comite=conclusao,
+    )
 
 
 def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float) -> LaudoComite:
