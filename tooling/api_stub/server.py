@@ -1565,6 +1565,13 @@ class InitUploadRequest(BaseModel):
         description="URL HTTPS do vídeo já hospedado externamente. Backend faz GET e copia pro GCS.",
     )
     renach: str = Field(..., min_length=1, description="RENACH/CNH do candidato")
+    id: int | None = Field(
+        default=None,
+        description=(
+            "ID externo / idAgendamento do integrador (ex.: TechPrático). Persiste em "
+            "exams.external_id e é a chave para buscar o resultado oficial. Opcional."
+        ),
+    )
     candidato_nome: str = ""
     candidato_cpf: str = ""
     processo: str = ""
@@ -1786,6 +1793,10 @@ def _build_meta_legacy(req: InitUploadRequest, analysis_id: str, ct: str, blob_n
     """Constrói upload.json no formato rico (legado/objeto-único)."""
     return {
         "analysis_id": analysis_id,
+        # idAgendamento do integrador — chave p/ buscar o resultado oficial no TechPrático.
+        "external_id": req.id,
+        # Payload BRUTO completo recebido — nunca mais perder campo que o integrador mande.
+        "raw": req.model_dump(mode="json"),
         "received_at": datetime.utcnow().isoformat() + "Z",
         "video": {
             "source_url": req.url,
@@ -1983,7 +1994,7 @@ async def init_upload(
             InitUploadItem(
                 url=legacy_req.url,
                 categoria=legacy_req.categoria,
-                id=None,
+                id=legacy_req.id,
                 renach=legacy_req.renach,
                 processo=legacy_req.processo or None,
             )
