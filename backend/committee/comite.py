@@ -24,6 +24,7 @@ import time
 from backend.core.config import settings
 from backend.matriz import prompt_builder
 from backend.models import (
+    LIMITE_APROVACAO,
     CausaIdentificada,
     ComentarioExaminador,
     Comparacao,
@@ -185,21 +186,28 @@ def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv
         linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
     lista = "\n".join(linhas) if linhas else "  (nenhuma infração apontada)"
 
-    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}). Sua função é \
-AMPARAR a decisão do auditor humano: para CADA infração detectada pela 1ª análise, \
-explique com clareza e fundamentação o MOTIVO de ela ter sido aplicada — ou aponte \
-por que NÃO se sustenta. Você NÃO decide pelo humano e NÃO reanalisa o vídeo: \
-raciocina sobre a evidência registrada e a Matriz MBEDV.
+    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}) — a SEGUNDA \
+ANÁLISE. Sua função NÃO é repetir a 1ª análise nem só justificá-la: é VALIDAR, \
+infração por infração, se o ATO realmente ocorreu, à luz da evidência registrada \
+e da Matriz MBEDV. Você ampara a decisão do auditor.
+
+REGRA DURA: se você NÃO conseguir confirmar, pela evidência, que o ato de fato \
+aconteceu, a infração NÃO se sustenta e será EXCLUÍDA do exame (o veredicto é \
+recalculado sem ela). Não confirme uma falta "no benefício da dúvida" — confirme \
+APENAS o que a evidência sustenta. Sem prova do ato, "nao_sustenta".
 
 INFRAÇÕES DETECTADAS (id @ timestamp — evidência):
 {lista}
 
-Para CADA infração, à luz da Matriz MBEDV abaixo, produza:
-  - motivo: por que a conduta caracteriza (ou não) a falta, em linguagem clara e objetiva.
+Para CADA infração, à luz da Matriz MBEDV abaixo:
+  - motivo: COMO você validou se o ato ocorreu — cite a evidência CONCRETA (o quê,
+    quando, em qual câmera/áudio) que CONFIRMA o ato, OU explique por que a
+    evidência NÃO comprova que aconteceu. Seja específico, não genérico.
   - conduta_observavel: o que o candidato fez (ou deixou de fazer) que configura a falta.
   - base_legal: o artigo CTB + a ficha MBEDV + gravidade/peso.
   - excecao_aplicavel: se alguma condição de "NÃO pontua" da ficha se aplica — qual, ou "nenhuma".
-  - veredicto: "sustenta" | "nao_sustenta" | "revisar" (exige olho humano).
+  - veredicto: "sustenta" (a evidência CONFIRMA que o ato ocorreu) | "nao_sustenta"
+    (a evidência NÃO comprova o ato → será EXCLUÍDA) | "revisar" (só o vídeo/humano decide).
   - confianca: 0.0 a 1.0.
 
 {bloco_mbedv}
@@ -210,9 +218,60 @@ DEVOLVA SOMENTE JSON:
     {{"id": "...", "motivo": "...", "conduta_observavel": "...", "base_legal": "...",
       "excecao_aplicavel": "...", "veredicto": "sustenta|nao_sustenta|revisar", "confianca": 0.0}}
   ],
-  "recomendacao_para_auditor": "síntese objetiva que ampara a decisão do auditor"
+  "recomendacao_para_auditor": "síntese objetiva: o que se SUSTENTA, o que foi EXCLUÍDO e por quê, e a recomendação ao auditor (confirmar / reformular / aprovar)"
 }}
 """
+
+
+def aplicar_exclusoes(exame_id: str, infracoes_entrada: list[dict], laudo: LaudoComite) -> dict:
+    """Aplica os veredictos do Comitê: infrações 'nao_sustenta' são EXCLUÍDAS
+    (status='excluida_comite') e o veredicto do exame é RECALCULADO sem elas.
+
+    Casa por POSIÇÃO (verificacoes na mesma ordem das infrações de entrada);
+    só age se a contagem bater (senão não arrisca exclusão errada). Devolve o
+    resumo {excluidas, pontuacao_total, aprovado}. Nunca levanta.
+    """
+    from backend.core import db
+
+    verifs = laudo.verificacoes_executadas
+    if not verifs or len(verifs) != len(infracoes_entrada):
+        return {"excluidas": 0, "skip": "contagem_divergente"}
+    excl = 0
+    try:
+        for ent, v in zip(infracoes_entrada, verifs, strict=False):
+            if v.resultado != "nao_sustenta":
+                continue
+            db.execute(
+                "UPDATE exam_infractions SET status='excluida_comite' "
+                "WHERE exam_id=%s AND regra_id=%s AND timestamp_s=%s "
+                "AND status IS DISTINCT FROM 'excluida_comite'",
+                (exame_id, str(ent.get("id") or ent.get("codigo") or ""), ent.get("timestamp_s")),
+            )
+            excl += 1
+        if not excl:
+            return {"excluidas": 0}
+        row = db.fetch_one(
+            "SELECT COALESCE(SUM(pontos),0) AS pts FROM exam_infractions "
+            "WHERE exam_id=%s AND (status IS NULL OR status <> 'excluida_comite')",
+            (exame_id,),
+        )
+        pts = int(row["pts"]) if row else 0
+        aprovado = pts <= LIMITE_APROVACAO
+        db.execute(
+            "UPDATE exams SET pontuacao_total=%s, aprovado=%s WHERE id=%s",
+            (pts, aprovado, exame_id),
+        )
+        log.info(
+            "comite exclusoes exame=%s excluidas=%d pts=%d aprovado=%s",
+            exame_id,
+            excl,
+            pts,
+            aprovado,
+        )
+        return {"excluidas": excl, "pontuacao_total": pts, "aprovado": aprovado}
+    except Exception as e:  # pragma: no cover — resiliente
+        log.warning("comite aplicar_exclusoes falhou exame=%s: %s", exame_id, e)
+        return {"excluidas": 0, "erro": str(e)[:120]}
 
 
 def revisar(
