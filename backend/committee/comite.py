@@ -238,7 +238,7 @@ def aplicar_exclusoes(exame_id: str, infracoes_entrada: list[dict], laudo: Laudo
         return {"excluidas": 0, "skip": "contagem_divergente"}
     excl = 0
     try:
-        for ent, v in zip(infracoes_entrada, verifs):
+        for ent, v in zip(infracoes_entrada, verifs, strict=False):
             if v.resultado != "nao_sustenta":
                 continue
             db.execute(
