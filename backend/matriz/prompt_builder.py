@@ -98,6 +98,18 @@ def construir_bloco(
         "Avalie CADA artigo abaixo. Para cada um, decida se a conduta ocorreu, "
         "respeitando as exceções (condutas que NÃO pontuam).",
         "",
+        "EXCEÇÕES DO NOVO MODELO MBEDV — NUNCA pontue (não geram infração nem "
+        "pontos ao candidato), mesmo que pareçam falta:",
+        '  - Veículo "morre" (motor apaga/cala) durante o exame, INCLUSIVE ao '
+        "arrancar em aclive/rampa — o candidato pode religar normalmente. NÃO é "
+        "infração (não enquadre em Art. 169 nem similar).",
+        "  - Erro de baliza ISOLADO — a baliza não é mais etapa autônoma do exame; "
+        "não é eliminatório nem pontua isoladamente.",
+        "  - Saída de faixa em EMERGÊNCIA ou por ORIENTAÇÃO do preposto/examinador — "
+        "não pontua quando há exceção válida prevista no MBEDV.",
+        "  - Conduta INDUZIDA por comentário inadequado do examinador — não pontua "
+        "(comentários que induzem o candidato ao erro são proibidos pelo MBEDV).",
+        "",
     ]
     for r in aplicaveis:
         peso = r.get("peso")
