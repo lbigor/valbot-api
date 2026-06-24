@@ -170,6 +170,98 @@ def _laudo_deterministico(
     )
 
 
+def _gemini_rest_clip(
+    video: str, start_s: int, end_s: int, fps: int, prompt: str, system: str
+) -> str:
+    """Chama o Gemini via API REST NATIVA do Vertex com `videoMetadata.fps`.
+
+    O SDK instalado (google-genai 1.2.0) não expõe `fps` no VideoMetadata; a API
+    REST aceita (campo documentado). Recorta [start_s, end_s] e amostra a `fps`
+    quadros/segundo — resolução temporal fina para validar paradas breves.
+    Devolve o texto (JSON) da resposta do modelo. Levanta em erro de transporte.
+    """
+    import urllib.request
+
+    import google.auth
+    import google.auth.transport.requests
+
+    creds, _ = google.auth.default()
+    creds.refresh(google.auth.transport.requests.Request())
+    loc = settings.vertex_location or "global"
+    host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
+    url = (
+        f"https://{host}/v1/projects/{settings.vertex_project}/locations/{loc}"
+        f"/publishers/google/models/{settings.vertex_model}:generateContent"
+    )
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "fileData": {"fileUri": str(video), "mimeType": "video/mp4"},
+                        "videoMetadata": {
+                            "fps": fps,
+                            "startOffset": f"{start_s}s",
+                            "endOffset": f"{end_s}s",
+                        },
+                    },
+                    {"text": prompt},
+                ],
+            }
+        ],
+        "systemInstruction": {"parts": [{"text": system}]},
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1,
+            "maxOutputTokens": 1024,
+        },
+    }
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Authorization": f"Bearer {creds.token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=120) as r:
+        resp = json.load(r)
+    cand = (resp.get("candidates") or [{}])[0]
+    return "".join(p.get("text", "") for p in (cand.get("content", {}).get("parts") or []))
+
+
+def _build_prompt_clip(
+    infr: dict, rubrica: str, bloco_mbedv: str, start_s: int, end_s: int
+) -> str:
+    """Prompt do Comitê para validar UMA infração observando só o seu clipe."""
+    rid = infr.get("id") or infr.get("codigo") or "?"
+    ev = infr.get("evidence") or infr.get("descricao") or ""
+    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}). Este clipe é o \
+trecho {start_s}s–{end_s}s do vídeo do exame, amostrado a 3 quadros/segundo \
+(resolução temporal fina — você consegue ver paradas breves).
+
+A 1ª análise apontou ESTA infração neste ponto:
+  • {rid} — "{ev}"
+
+Reexamine APENAS este clipe, quadro a quadro, à luz da Matriz MBEDV abaixo:
+
+{bloco_mbedv}
+
+Decida se a infração SE CONFIRMA. Se em QUALQUER quadro a conduta exigida ocorre \
+(ex.: parada obrigatória — o veículo aparece TOTALMENTE imóvel, rodas paradas, na \
+faixa de retenção antes do cruzamento), então NÃO confirme. Na dúvida sobre a \
+imobilização total, "nao_confirmada" (benefício da dúvida ao candidato).
+
+resultado ∈ {{"infracao_confirmada", "excecao_aplicavel", "nao_confirmada"}}.
+
+DEVOLVA SOMENTE JSON:
+{{"resultado": "...", "evidencia": "o que viu, com o segundo exato", \
+"interpretacao_normativa": "...", "confianca": 0.0}}
+"""
+
+
 def revisar(
     video: str | None,
     *,
@@ -179,43 +271,90 @@ def revisar(
     deteccao: SaidaDeteccao,
     rubrica: str = "1020/2025",
 ) -> LaudoComite:
-    """Executa o Comitê. Tenta a 2ª chamada Gemini focada; em falha, cai no
-    laudo determinístico. Sempre devolve um laudo (nunca levanta)."""
+    """Executa o Comitê por CLIPE: para cada infração, recorta [t-3s, t+3s] e
+    valida a 3fps (REST nativo) se a conduta de fato ocorreu naquele timestamp.
+
+    Grounding fino evita a alucinação de timestamps do reexame do vídeo inteiro.
+    Em falha total das chamadas, cai no laudo determinístico. Nunca levanta."""
     started = time.monotonic()
 
     if not settings.comite_habilitado or not video or not infracoes_detectadas:
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
 
     try:
-        import vertexai
-        from vertexai.generative_models import GenerationConfig, GenerativeModel, Part
+        bloco_mbedv, _versao = prompt_builder.construir_bloco(None)
+    except Exception:  # pragma: no cover — sem banco/seed
+        bloco_mbedv = ""
 
-        prompt = _build_prompt_comite(infracoes_detectadas, rubrica)
-        vertexai.init(project=settings.vertex_project, location=settings.vertex_location)
-        model = GenerativeModel(
-            settings.vertex_model,
-            system_instruction=(
-                "Você é o Comitê de IA do Val Auditor: aprofunda divergências com "
-                "rigor, jamais decide pelo humano, jamais reverte a divergência. "
-                "Foca apenas nas infrações recebidas."
-            ),
+    system = (
+        "Você é o Comitê de IA do Val Auditor: valida UMA infração observando só o "
+        "clipe do timestamp, com rigor; jamais decide pelo humano; na dúvida refuta."
+    )
+
+    causas: list[CausaIdentificada] = []
+    verifs: list[VerificacaoComite] = []
+    erros = 0
+    for it in infracoes_detectadas:
+        ts_raw = it.get("timestamp_s") or it.get("ts_seconds") or 0
+        try:
+            ts = float(ts_raw)
+        except (TypeError, ValueError):
+            ts = 0.0
+        start = max(0, int(ts) - 3)
+        end = int(ts) + 3
+        prompt = _build_prompt_clip(it, rubrica, bloco_mbedv, start, end)
+        try:
+            raw = _parse_json(_gemini_rest_clip(str(video), start, end, 3, prompt, system))
+        except Exception as e:  # noqa: BLE001 — resiliente por clipe
+            erros += 1
+            log.warning("comite clip falhou exame=%s ts=%s: %s", exame_id, ts, e)
+            raw = {}
+        res = raw.get("resultado", "nao_confirmada")
+        causas.append(
+            CausaIdentificada(
+                causa=str(it.get("descricao") or it.get("id") or ""),
+                evidencia=raw.get("evidencia", ""),
+                interpretacao_normativa=raw.get("interpretacao_normativa", ""),
+                confianca_causa=float(raw.get("confianca") or 0.0),
+            )
         )
-        part = Part.from_uri(str(video), mime_type="video/mp4")
-        resp = model.generate_content(
-            [part, prompt],
-            generation_config=GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0.1,
-                max_output_tokens=4096,
-            ),
+        verifs.append(
+            VerificacaoComite(
+                regra=str(it.get("id") or ""),
+                segmento=f"{start}s-{end}s",
+                resultado=res,
+            )
         )
-        raw = _parse_json(resp.text)
-        laudo = _laudo_de_raw(exame_id, comparacao, raw, time.monotonic() - started)
-        log.info("comite exame=%s causas=%d", exame_id, len(laudo.causas_identificadas))
-        return laudo
-    except Exception as e:  # pragma: no cover — fallback resiliente
-        log.warning("comite Gemini falhou exame=%s (%s) — laudo determinístico", exame_id, e)
+
+    # Todas as chamadas falharam → não inventa: cai no determinístico.
+    if erros and erros == len(infracoes_detectadas):
+        log.warning("comite exame=%s: todas as chamadas de clipe falharam", exame_id)
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+
+    confirmadas = sum(1 for v in verifs if v.resultado == "infracao_confirmada")
+    conclusao = (
+        "concorda_com_examinador"
+        if verifs and confirmadas == len(verifs)
+        else "manter_divergencia_com_fundamentacao"
+    )
+    log.info(
+        "comite exame=%s clipes=%d confirmadas=%d", exame_id, len(verifs), confirmadas
+    )
+    return LaudoComite(
+        exame_id=exame_id,
+        comite_versao=settings.comite_versao + "+clip3fps",
+        tempo_processamento_seg=round(time.monotonic() - started, 2),
+        tipo_divergencia_analisada=comparacao.tipo_divergencia,
+        tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
+        causas_identificadas=causas,
+        verificacoes_executadas=verifs,
+        comentarios_examinador_detectados=[],
+        recomendacao_para_auditor=(
+            f"{confirmadas}/{len(verifs)} infrações confirmadas no reexame por "
+            f"clipe a 3fps (resolução temporal fina por timestamp)."
+        ),
+        conclusao_comite=conclusao,
+    )
 
 
 def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float) -> LaudoComite:
