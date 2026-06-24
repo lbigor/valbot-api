@@ -21,7 +21,8 @@ def _regras_vigentes() -> tuple[list[dict], str]:
     if db.db_enabled():
         rows = db.fetch_all(
             "SELECT codigo_val, artigo_ctb, natureza, peso, categorias_aplicaveis, "
-            "conduta_observavel, quando_pontuar, quando_nao_pontuar "
+            "conduta_observavel, descricao, quando_pontuar, quando_nao_pontuar, "
+            "comentario_juridico "
             "FROM exam_rules WHERE vigencia_fim IS NULL ORDER BY artigo_ctb"
         )
         ver = db.fetch_one("SELECT versao FROM matriz_versoes WHERE vigente = TRUE LIMIT 1")
@@ -59,6 +60,9 @@ def construir_bloco(categoria: str | None = None) -> tuple[str, str]:
             f"### {r.get('artigo_ctb')} — {r.get('conduta_observavel')} "
             f"[{r.get('natureza')}, {peso_txt}]"
         )
+        # Descrição oficial da ficha MBEDV — contextualiza o que caracteriza a falta.
+        if r.get("descricao"):
+            linhas.append(f"Descrição: {str(r['descricao']).strip()}")
         if r.get("quando_pontuar"):
             linhas.append("Condutas que pontuam:")
             for c in str(r["quando_pontuar"]).split("\n"):
@@ -69,5 +73,13 @@ def construir_bloco(categoria: str | None = None) -> tuple[str, str]:
             for c in str(r["quando_nao_pontuar"]).split("\n"):
                 if c.strip():
                     linhas.append(f"  - {c.strip()}")
+        # Definições e procedimentos da ficha MBEDV — COMO avaliar (ponto de
+        # referência da conduta, ex.: "parada antes da faixa de retenção; veículo
+        # totalmente imóvel"). Crítico p/ não gerar falso positivo de parada rolante.
+        if r.get("comentario_juridico"):
+            linhas.append(
+                f"Como avaliar (definições e procedimentos): "
+                f"{str(r['comentario_juridico']).strip()}"
+            )
         linhas.append("")
     return "\n".join(linhas), versao

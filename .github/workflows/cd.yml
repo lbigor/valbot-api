@@ -1,14 +1,15 @@
 name: CD Backend
 
 # Deploy versionado do backend (valbot-api) na VM valbot-prod.
-#   push em `main` que toque server.py/db.py  → atualiza o backend na VM
-#   workflow_dispatch                          → deploy manual sob demanda
+#   push em `main` que toque server.py/db.py, backend/** ou migrations/** → deploy
+#   workflow_dispatch                                                     → manual
 #
 # Autentica via Workload Identity Federation keyless (mesma config do valbot-web,
 # projeto valbot-497920) — sem chave JSON. Atualiza os arquivos montados via
-# docker-compose.override.yml em /opt/valbot-deploy/customizations e reinicia o
-# container. ⚠️ o restart reinicia o uvicorn → /api/exams/init-upload fica
-# indisponível por alguns segundos. Backups ficam como *.bak-cd-<ts> (rollback).
+# docker-compose.override.yml em /opt/valbot-deploy/customizations (server.py,
+# db.py E o dir backend/ inteiro), aplica as migrations idempotentes da matriz e
+# reinicia o container. ⚠️ o restart reinicia o uvicorn → /api/exams/init-upload
+# fica indisponível por alguns segundos. Backups ficam como *.bak-cd-<ts>.
 #
 # Médio prazo: quando o backend rodar a imagem com o código embutido (API-only),
 # este CD passa a fazer pull da imagem em vez do swap dos arquivos soltos.
@@ -19,6 +20,8 @@ on:
     paths:
       - "tooling/api_stub/server.py"
       - "tooling/api_stub/db.py"
+      - "backend/**"
+      - "migrations/**"
   workflow_dispatch:
 
 concurrency:
@@ -51,17 +54,29 @@ jobs:
 
       # Tudo numa única conexão SSH (o gcloud compute scp via IAP pendura neste
       # ambiente; ssh funciona). A VM clona a própria main e troca os arquivos.
-      - name: Deploy (clone main na VM + backup + troca + restart)
+      - name: Deploy (clone main na VM + backup + troca + migrations + restart)
         run: |
           gcloud compute ssh "${VM}" --zone "${ZONE}" --tunnel-through-iap --quiet --command '
             set -e
             CUST='"${CUST}"'
             TS=$(date +%Y%m%d_%H%M%S)
             cd /tmp && rm -rf va-cd && git clone --depth 1 -q https://github.com/lbigor/valbot-api.git va-cd
+            # backup (server.py, db.py e o dir backend/ montado via override)
             sudo cp "$CUST/server.py" "$CUST/server.py.bak-cd-$TS"
             sudo cp "$CUST/db.py" "$CUST/db.py.bak-cd-$TS"
+            sudo cp -a "$CUST/backend" "$CUST/backend.bak-cd-$TS"
+            # troca server.py + db.py
             sudo cp /tmp/va-cd/tooling/api_stub/server.py "$CUST/server.py"
             sudo cp /tmp/va-cd/tooling/api_stub/db.py "$CUST/db.py"
+            # sincroniza backend/ (prompt_builder, seed_mbedv, engines, comite...) da main.
+            # Overlay (sem --delete) p/ não remover eventuais arquivos prod-only.
+            sudo cp -a /tmp/va-cd/backend/. "$CUST/backend/"
+            # migrations idempotentes da matriz (025 add coluna descricao, 026 backfill).
+            # Aplicadas explicitamente (ainda sem migration-runner com tracking table).
+            for m in 025_exam_rules_descricao 026_exam_rules_descricao_data; do
+              echo "migration $m"
+              sudo docker exec -i valbot-postgres psql -U valbot -d valbot -v ON_ERROR_STOP=1 -f - < "/tmp/va-cd/migrations/$m.sql"
+            done
             sudo docker restart valbot-api >/dev/null
             echo "deploy backend ok ($TS)"
           '
