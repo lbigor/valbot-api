@@ -71,9 +71,9 @@ jobs:
             # sincroniza backend/ (prompt_builder, seed_mbedv, engines, comite...) da main.
             # Overlay (sem --delete) p/ não remover eventuais arquivos prod-only.
             sudo cp -a /tmp/va-cd/backend/. "$CUST/backend/"
-            # migrations idempotentes da matriz (025 add coluna descricao, 026 backfill).
+            # migrations idempotentes (025 add coluna, 026 backfill, 027 view canônica).
             # Aplicadas explicitamente (ainda sem migration-runner com tracking table).
-            for m in 025_exam_rules_descricao 026_exam_rules_descricao_data; do
+            for m in 025_exam_rules_descricao 026_exam_rules_descricao_data 027_view_canonica_resultado_oficial; do
               echo "migration $m"
               sudo docker exec -i valbot-postgres psql -U valbot -d valbot -v ON_ERROR_STOP=1 -f - < "/tmp/va-cd/migrations/$m.sql"
             done
