@@ -170,9 +170,7 @@ def _laudo_deterministico(
     )
 
 
-def _build_prompt_justificativa(
-    infracoes: list[dict], rubrica: str, bloco_mbedv: str
-) -> str:
+def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv: str) -> str:
     """Prompt do Comitê: AMPARA a decisão do auditor explicando, com fundamentação
     MBEDV, o MOTIVO de cada infração detectada — sem reanalisar o vídeo (raciocina
     sobre a evidência já capturada pela 1ª análise + a Matriz)."""
@@ -181,9 +179,7 @@ def _build_prompt_justificativa(
         rid = it.get("id") or it.get("codigo") or "?"
         ts = it.get("timestamp_s") or it.get("ts_seconds")
         ts_fmt = (
-            f"{int(ts) // 60:02d}:{int(ts) % 60:02d}"
-            if isinstance(ts, (int, float))
-            else "??:??"
+            f"{int(ts) // 60:02d}:{int(ts) % 60:02d}" if isinstance(ts, (int, float)) else "??:??"
         )
         ev = it.get("evidence") or it.get("descricao") or ""
         linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
@@ -268,9 +264,7 @@ def revisar(
         )
         raw = _parse_json(resp.text)
         laudo = _laudo_de_justificativa(exame_id, comparacao, raw, time.monotonic() - started)
-        log.info(
-            "comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas)
-        )
+        log.info("comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas))
         return laudo
     except Exception as e:  # pragma: no cover — fallback resiliente
         log.warning("comite Gemini falhou exame=%s (%s) — determinístico", exame_id, e)
