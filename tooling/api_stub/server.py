@@ -3702,13 +3702,24 @@ def dashboard_valbot(
 
             # Indicador "recebidos × resultado oficial × anotações" — da view
             # canônica (v_exams_overview, migrations 027/028). Fonte única.
-            vbase = f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
+            # MESMO ESCOPO da fila operacional (Kanban): categoria + corte, e
+            # "aguardando" = stage='aguardando_oficial' (não inclui processando/
+            # falhou) — assim o número bate com a coluna do Kanban.
+            _ind_cat = (os.environ.get("VALBOT_FILA_CATEGORIA", "B") or "B").strip().upper()[:1]
+            if _ind_cat not in ("A", "B", "C", "D", "E"):
+                _ind_cat = "B"
+            _ind_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
+            _ind_desde = _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-06-13"
+            vbase = (
+                f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
+                f" AND categoria = '{_ind_cat}' AND created_at >= '{_ind_desde}'"
+            )
             trow = c.execute(
                 f"SELECT COUNT(*), "
                 f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
                 f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
                 f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
-                f"COUNT(*) FILTER (WHERE oficial_pendente), "
+                f"COUNT(*) FILTER (WHERE stage='aguardando_oficial'), "
                 f"COUNT(*) FILTER (WHERE tem_anotacoes) "
                 f"{vbase}"
             ).fetchone()
@@ -3730,7 +3741,7 @@ def dashboard_valbot(
                 f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
                 f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
                 f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
-                f"COUNT(*) FILTER (WHERE oficial_pendente), "
+                f"COUNT(*) FILTER (WHERE stage='aguardando_oficial'), "
                 f"COUNT(*) FILTER (WHERE tem_anotacoes) "
                 f"{vol_where} "
                 f"GROUP BY 1, date_trunc('day', created_at) "
