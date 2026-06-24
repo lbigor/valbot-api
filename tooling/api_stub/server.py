@@ -3709,7 +3709,9 @@ def dashboard_valbot(
             if _ind_cat not in ("A", "B", "C", "D", "E"):
                 _ind_cat = "B"
             _ind_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
-            _ind_desde = _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-06-13"
+            _ind_desde = (
+                _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-06-13"
+            )
             vbase = (
                 f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
                 f" AND categoria = '{_ind_cat}' AND created_at >= '{_ind_desde}'"
