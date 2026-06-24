@@ -969,6 +969,10 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
     fila_categoria = os.environ.get("VALBOT_FILA_CATEGORIA", "B")
     rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
+    # "Sem vídeo disponível" NÃO entra na Operação/fila: ingestão incompleta presa
+    # em status='uploading' (o caminho gs_video está gravado, mas o objeto não
+    # existe no GCS — download nunca concluiu). Esses não têm o que auditar.
+    rows = [r for r in rows if (r.get("status") or "").strip().lower() != "uploading"]
     items = []
     for r in rows:
         # Campos canônicos vêm da view (v_exams_overview, migration 027) — fonte
