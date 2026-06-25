@@ -27,8 +27,8 @@ class Settings:
 
     # Análise (Motor de Detecção / Comitê)
     vertex_project: str = os.environ.get("VERTEX_PROJECT", "")
-    vertex_location: str = os.environ.get("VERTEX_LOCATION", "global")
-    vertex_model: str = os.environ.get("VERTEX_MODEL", "gemini-3.1-pro-preview")
+    vertex_location: str = os.environ.get("VERTEX_LOCATION", "us-central1")
+    vertex_model: str = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
     preset: str = os.environ.get("VALBOT_PRESET", "v25/valbot-r1-vip-v25")
     use_modular_v26: bool = _bool("VALBOT_USE_MODULAR_V26")
 

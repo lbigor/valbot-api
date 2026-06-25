@@ -8,7 +8,7 @@ Fluxo:
 
     1.  Recebe o caminho de um vídeo local (ou já um `gs://` URI).
     2.  Faz upload para o bucket GCS do projeto se ainda for local.
-    3.  Chama `gemini-3.1-pro-preview` (region `global`) com:
+    3.  Chama `gemini-2.5-pro` (GA, region `us-central1`) com:
           - system prompt = preset v25 (`valbot-r1-vip-v25.md`).
           - user prompt   = `_build_user_prompt()` — explícito sobre layout
                              dinâmico das 4 câmeras, áudio + vídeo simultâneos
@@ -44,8 +44,8 @@ log = logging.getLogger(__name__)
 # ============================================================================
 
 PROJECT_ID = os.environ.get("VERTEX_PROJECT", "project-308f1fa8-a301-49e6-a69")
-LOCATION = os.environ.get("VERTEX_LOCATION", "global")
-MODEL_NAME = os.environ.get("VERTEX_MODEL", "gemini-3.1-pro-preview")
+LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
+MODEL_NAME = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "valbot-prod")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DIR = PROJECT_ROOT / "tooling" / "bench_demo" / "presets"
