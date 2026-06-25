@@ -436,6 +436,25 @@ app = FastAPI(
 
 
 @app.on_event("startup")
+def _ensure_schema_objects() -> None:
+    """Recria os objetos derivados de schema (v_exams_overview / v_exams_metrics /
+    exam_busca_oficial_log) a CADA boot, de forma idempotente e à prova de falha.
+
+    A definição correta da view vive no CÓDIGO (tooling/api_stub/db_views.py) e é
+    a fonte da verdade — substitui a dependência frágil de migrations + baseline
+    (em prod o migrate.sh nem roda no CD). Garante que, após qualquer deploy/
+    restart, a view SEMPRE fica na versão correta (CASE de stage por LOG; comitê
+    vs auditoria corretos), sem reverter correções. Roda ANTES do warm da fila,
+    que lê justamente da v_exams_overview.
+    """
+    try:
+        ok = db.ensure_schema_objects()
+        log.info("startup: ensure_schema_objects ok=%s", ok)
+    except Exception:
+        log.exception("startup: ensure_schema_objects falhou (boot segue)")
+
+
+@app.on_event("startup")
 def _warm_fila_cache() -> None:
     """Pré-aquece os caches da fila (feed + totais) no boot e mantém quente com
     um refresher em background a cada 5s. Garante que /fila NUNCA espera o
