@@ -6777,6 +6777,20 @@ def post_parecer_auditor_by_hash(
             "source": "mock" if db._disabled() else "no-os",
         }
 
+    # GUARD DE IMUTABILIDADE — depois que o Auditor confirma o parecer/laudo ele NÃO
+    # pode mais ser alterado. Recusa a re-submissão com 409 ANTES de chamar
+    # save_parecer_auditor (que faz DELETE+INSERT e sobrescreveria o parecer):
+    #   • parecer já confirmado (registro em auditor_pareceres), OU
+    #   • OS já encerrada pelo Supervisor (laudo oficial publicado).
+    # Rascunho do auditor é localStorage no front e NÃO passa por aqui — só dispara
+    # para um parecer de fato confirmado. DB off / OS inexistente → guards devolvem
+    # False (best-effort), o fluxo segue p/ o eco-mock normal.
+    if db.parecer_auditor_ja_confirmado(os_id) or db.os_ja_encerrada(os_id):
+        raise HTTPException(
+            409,
+            "Parecer já confirmado — laudo do auditor é imutável e não pode ser sobrescrito.",
+        )
+
     saved = db.save_parecer_auditor(
         os_id,
         auditor=auditor,
