@@ -46,7 +46,7 @@ def _ctx(result: dict, upload_meta: dict) -> dict:
         "laudo_id": f"LAU-{hash_short}",
         "rubrica": "1020_2025",
         "video_hash": result.get("video", {}).get("hash", ""),
-        "modelo_versao": result.get("engine", {}).get("model", "gemini-3.1-pro-preview"),
+        "modelo_versao": result.get("engine", {}).get("model", "gemini-2.5-pro"),
         "duracao_seg": float(result.get("video", {}).get("duration_s") or 240.0),
         "limite_pontuacao": 10,
         "local": upload_meta.get("exame", {}).get("local", "—"),
