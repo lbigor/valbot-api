@@ -187,7 +187,7 @@ def _build_prompt_comite(infracoes: list[dict], rubrica: str, categoria: str | N
     except Exception:  # pragma: no cover — sem banco/seed, segue sem bloco
         bloco_mbedv = ""
 
-    return f"""Você é o COMITÊ DE IA do Val Auditor, auditando o exame prático de \
+    return f"""Você é o COMITÊ VAL do Val Auditor, auditando o exame prático de \
 direção (rubrica {rubrica}).
 
 Sua tarefa NÃO é varrer o vídeo inteiro. Você recebeu a lista FECHADA de \
@@ -321,7 +321,7 @@ def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv
     # mantém o prompt enxuto e a mudança conservadora (zero efeito nos demais).
     bloco_208 = _INSTRUCAO_ART_208 if _tem_art_208(infracoes) else ""
 
-    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}) — a SEGUNDA \
+    return f"""Você é o COMITÊ VAL do Val Auditor (rubrica {rubrica}) — a SEGUNDA \
 ANÁLISE. Sua função NÃO é repetir a 1ª análise nem só justificá-la: é VALIDAR, \
 infração por infração, se o ATO realmente ocorreu, à luz da evidência registrada \
 e da Matriz MBEDV. Você ampara a decisão do auditor.
@@ -479,7 +479,7 @@ def revisar(
         model = GenerativeModel(
             settings.vertex_model,
             system_instruction=(
-                "Você é o Comitê de IA do Val Auditor: AMPARA a decisão do auditor "
+                "Você é o Comitê Val do Val Auditor: AMPARA a decisão do auditor "
                 "humano explicando, com fundamentação MBEDV, o motivo de cada infração "
                 "detectada. Rigor e clareza; jamais decide pelo humano."
             ),

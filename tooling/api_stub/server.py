@@ -7215,7 +7215,7 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
                     {
                         "ordem": 2,
                         "nivel": "auditor_val_ia",
-                        "rotulo": "Auditor Val (IA)",
+                        "rotulo": "Auditor Val",
                         "veredito": "aguardando",
                         "decidido_em": None,
                         "relacao_examinador": None,
@@ -7223,7 +7223,7 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
                     {
                         "ordem": 3,
                         "nivel": "comite_ia",
-                        "rotulo": "Comitê de IA",
+                        "rotulo": "Comitê Val",
                         "veredito": "aguardando",
                         "decidido_em": None,
                         "relacao_examinador": None,
@@ -7643,7 +7643,7 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             {
                 "ordem": 2,
                 "nivel": "auditor_val_ia",
-                "rotulo": "Auditor Val (IA)",
+                "rotulo": "Auditor Val",
                 "veredito": _n2,
                 "decidido_em": _decidido_em_ia,
                 # ② vs ① — origem da divergência que aciona o Comitê.
@@ -7652,7 +7652,7 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             {
                 "ordem": 3,
                 "nivel": "comite_ia",
-                "rotulo": "Comitê de IA",
+                "rotulo": "Comitê Val",
                 "veredito": _n3,
                 "decidido_em": _decidido_em_comite,
                 # ③ vs ① — "concorda com examinador" / "mantém divergência" DERIVADO.
@@ -7844,19 +7844,19 @@ def _laudo_pdf_html(laudo: dict) -> str:
         parts.append(
             "<table class='cmp'>"
             "<tr><th>Resultado Oficial (Examinador / TechPrático)</th>"
-            "<th>Veredito ValBot (IA)</th><th>Concordância</th></tr>"
+            "<th>Veredito Val</th><th>Concordância</th></tr>"
             f"<tr><td class='big'>{esc(resultado_oficial)}</td>"
             f"<td class='big'>{esc(veredito_valbot)}</td>"
             f"<td class='big {conc_cls}'>{esc(conc_label)}</td></tr>"
             "</table>"
-            f"<p class='note'>Pontuação calculada pela IA: <b>{esc(pont if pont is not None else '—')}</b> "
+            f"<p class='note'>Pontuação calculada pelo Val: <b>{esc(pont if pont is not None else '—')}</b> "
             f"· nº de infrações detectadas: <b>{len(infracoes)}</b> "
             f"· limite de aprovação: ≤ 10 pontos cumulativos.</p>"
         )
         # Infrações IA
-        parts.append("<h2>3. Infrações Detectadas pela IA</h2>")
+        parts.append("<h2>3. Infrações Detectadas pelo Val</h2>")
         if not infracoes:
-            parts.append("<p class='vazio'>Nenhuma infração detectada pela IA.</p>")
+            parts.append("<p class='vazio'>Nenhuma infração detectada pelo Val.</p>")
         else:
             linhas = [
                 "<table class='inf'><tr><th>#</th><th>Tempo</th><th>Regra</th>"
@@ -7922,7 +7922,7 @@ def _laudo_pdf_html(laudo: dict) -> str:
         )
         parts.append(
             "<p class='foot'>Documento gerado automaticamente pelo sistema ValBot. "
-            "Veredito da IA tem caráter de apoio à decisão; a homologação final compete "
+            "Veredito do Val tem caráter de apoio à decisão; a homologação final compete "
             "à autoridade examinadora competente.</p>"
         )
         parts.append("</div>")
@@ -8197,7 +8197,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     <h2>2. Comparativo de Resultados</h2>
     <table class="cmp">
       <tr><th>Resultado Oficial (TechPrático)</th>
-          <th>Veredito ValBot (IA — Gemini)</th>
+          <th>Veredito Val (Gemini)</th>
           <th>Concordância</th></tr>
       <tr>
         <td class="big {"ok" if oficial_aprovado else "div"}">{_esc_v2(res_oficial)}</td>
@@ -8274,7 +8274,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
         )
         _ia_pont = _first(_c, "pontuacao_calculada", "pontuacao_total")
         _ia_sint = (
-            f"Pontuação calculada: {_ia_pont}" if str(_ia_pont) else "Resultado calculado pela IA"
+            f"Pontuação calculada: {_ia_pont}" if str(_ia_pont) else "Resultado calculado pelo Val"
         )
 
         # ③ Comitê de IA (recomendação, não veredito final)
@@ -8297,7 +8297,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
         _p = _blk("10_parecer_auditor")
         _pa_fin_lbl, _pa_fin_cls = _ar(_first(_p, "resultado_final"))
         _pa_dec = str(_first(_p, "decisao"))
-        _pa_dec_lbl = {"concorda": "Concorda com a IA", "discorda": "Diverge da IA"}.get(
+        _pa_dec_lbl = {"concorda": "Concorda com o Val", "discorda": "Diverge do Val"}.get(
             _pa_dec, _pa_dec
         )
         if _tem(_p):
@@ -8325,8 +8325,8 @@ def _laudo_pdf_v2_html(hash: str) -> str:
 
         _cadeia = [
             ("①", "Examinador", _ex_lbl, _ex_cls, _ex_resp, _ex_sint),
-            ("②", "Auditor Val (IA)", _ia_lbl, _ia_cls, _ia_resp, _ia_sint),
-            ("③", "Comitê de IA", _cm_vere, _cm_cls, "Refino multi-modelo", _cm_sint),
+            ("②", "Auditor Val", _ia_lbl, _ia_cls, _ia_resp, _ia_sint),
+            ("③", "Comitê Val", _cm_vere, _cm_cls, "Refino multi-modelo", _cm_sint),
             ("④", "Auditor", _pa_vere, _pa_cls, _pa_resp, _pa_sint),
             ("⑤", "Supervisor", _ds_vere, _ds_cls, _ds_resp, _ds_sint),
         ]
@@ -8347,9 +8347,9 @@ def _laudo_pdf_v2_html(hash: str) -> str:
         _vf_origem_lbl = {
             "supervisor": "Decisão final do Supervisor",
             "auditor": "Parecer do Auditor",
-            "comite": "Comitê de IA",
-            "consenso_examinador_ia": "Consenso Examinador × IA",
-            "ia_gate": "Gate da IA (visibilidade/qualidade)",
+            "comite": "Comitê Val",
+            "consenso_examinador_ia": "Consenso Examinador × Val",
+            "ia_gate": "Gate do Val (visibilidade/qualidade)",
         }.get(str(_vf_origem), "—")
         if _vf:
             _vf_cls = (
@@ -8366,8 +8366,8 @@ def _laudo_pdf_v2_html(hash: str) -> str:
       </tr>
     </table>
     <p class="note">Veredito oficial do laudo, por precedência: decisão do Supervisor (quando
-    houver) sobre o parecer do Auditor, sobre o Comitê de IA, sobre o consenso Examinador × IA.
-    "INAPTO PARA AVALIAÇÃO" é terminal e emitido pela IA (gate de visibilidade), não sobreposto
+    houver) sobre o parecer do Auditor, sobre o Comitê Val, sobre o consenso Examinador × Val.
+    "INAPTO PARA AVALIAÇÃO" é terminal e emitido pelo Val (gate de visibilidade), não sobreposto
     por nível humano.</p>"""
         else:
             _veredito_final_html = ""
@@ -8435,7 +8435,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     <h2>3. Infrações Detectadas pelo ValBot ({len(linhas)})</h2>
     <table class="inf">
       <tr><th>Tempo</th><th>Código (Art./MBEDV)</th><th>Gravidade</th>
-          <th>Pontos</th><th>Descrição</th><th>Comitê de IA</th><th>Evidência / Base legal</th></tr>
+          <th>Pontos</th><th>Descrição</th><th>Comitê Val</th><th>Evidência / Base legal</th></tr>
       {"".join(linhas)}
     </table>""")
         else:
@@ -8503,7 +8503,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
       {_esc_v2(_RESOLUCAO_V2)} ·
       Relatório {_esc_v2(rep_id)} · Hash do exame
       <span class="mono">{_esc_v2(hash)}</span> · Fonte: {_esc_v2(fonte)}.<br>
-      Documento gerado automaticamente pelo ValBot. A análise por IA tem caráter
+      Documento gerado automaticamente pelo ValBot. A análise do Val tem caráter
       auxiliar à decisão do examinador credenciado; o resultado oficial do exame é
       o registrado pelo órgão executivo de trânsito conforme a legislação vigente.
     </div>""")

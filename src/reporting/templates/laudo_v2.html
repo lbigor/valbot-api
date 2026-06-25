@@ -128,8 +128,8 @@
   <tr><th>Resolução vigente</th><td>{{ b1_identificacao.resolucao }}</td></tr>
   <tr><th>Manual aplicável</th><td>{{ b1_identificacao.manual_mbedv }}</td></tr>
   <tr><th>Matriz Nacional Val</th><td>{{ b1_identificacao.matriz_versao }}</td></tr>
-  <tr><th>Modelo IA Principal</th><td>{{ b1_identificacao.modelo_ia }}</td></tr>
-  <tr><th>Modelo Comitê de IA</th><td>{{ b1_identificacao.modelo_comite }}</td></tr>
+  <tr><th>Modelo Val Principal</th><td>{{ b1_identificacao.modelo_ia }}</td></tr>
+  <tr><th>Modelo Comitê Val</th><td>{{ b1_identificacao.modelo_comite }}</td></tr>
   <tr><th>Hash do vídeo original</th><td>{{ b1_identificacao.video_hash }}</td></tr>
   <tr><th>Hash do laudo</th><td>{{ b1_identificacao.hash_laudo }}</td></tr>
   <tr><th>Assinatura digital</th><td>{{ b1_identificacao.assinatura }}</td></tr>
@@ -232,7 +232,7 @@ da Comissão competente, conforme Art. 43, §1º da Resolução CONTRAN nº 1.02
   <tr><th>Decisão calculada</th><td>{{ b5_resultado_calculado.decisao }}</td></tr>
   <tr><th>Pontuação calculada</th><td>{{ b5_resultado_calculado.pontuacao if b5_resultado_calculado.pontuacao is not none else '—' }} pontos</td></tr>
   <tr><th>Limite normativo aplicado</th><td>{{ b5_resultado_calculado.limite }} pontos (Resolução CONTRAN 1.020/2025, Art. 45)</td></tr>
-  <tr><th>Infrações detectadas pela IA</th><td>{{ b5_resultado_calculado.num_infracoes }}</td></tr>
+  <tr><th>Infrações detectadas pelo Val</th><td>{{ b5_resultado_calculado.num_infracoes }}</td></tr>
   <tr><th>Eventos sem enquadramento normativo</th><td>{{ b5_resultado_calculado.eventos_sem_enquadramento }} (não pontuam)</td></tr>
   <tr><th>Confiança agregada do cálculo</th><td>{{ b5_resultado_calculado.confianca_agregada }}</td></tr>
   <tr><th>Camadas técnicas utilizadas</th><td>{{ b5_resultado_calculado.camadas_tecnicas | join(' · ') }}</td></tr>

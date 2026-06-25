@@ -197,7 +197,7 @@ def montar_laudo_pdf_view(dossie: dict, *, versao_controlada: bool = False) -> d
             mes=int(dossie.get("mes") or 0),
             video_hash=dossie.get("video_hash"),
         ),
-        "versao": "FINAL (após processamento do Comitê)" if tem_comite else "PRELIMINAR (pós-IA)",
+        "versao": "FINAL (após processamento do Comitê)" if tem_comite else "PRELIMINAR (pós-Val)",
         "emitido_em": _g(dossie, "emitido_em"),
         "tempo_processamento": _g(dossie, "tempo_processamento"),
         "resolucao": _g(dossie, "resolucao", default="Resolução CONTRAN nº 1.020/2025"),
@@ -418,7 +418,7 @@ def _linha_do_tempo(
         eventos.append(
             {
                 "ts": float(ts) if isinstance(ts, (int, float)) else None,
-                "tipo": "Infração (IA)",
+                "tipo": "Infração",
                 "origem": "Motor Normativo",
                 "descricao": f"{inf.get('artigo_ctb', '—')} — {inf.get('conduta_observada', inf.get('evidence', ''))}",
                 "cor": "infracao",
