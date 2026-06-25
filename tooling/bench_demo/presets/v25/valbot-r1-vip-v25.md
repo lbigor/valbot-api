@@ -162,7 +162,7 @@ Motivos válidos pra rejeição (use exatamente um destes em `rejection_reason`)
   - Falsos positivos (FP) custam reprovações indevidas e perda de confiança. Falsos negativos (FN) são absorvidos pela revisão humana N1. **Prefira FN.**
   - Antes de marcar `detectada`, pergunte-se: "Eu defenderia isso em uma auditoria perante a banca N1 com base na evidência?". Se "talvez não", baixe pra `nao_detectada` ou `pendente_infraestrutura`.
 **PASSO 5 — TIER:** A = observável (áudio/vídeo nítidos, `avaliado`). B = sequência temporal/transcript (`avaliado`). C = depende de infraestrutura (`pendente_infraestrutura`).
-**PASSO 6 — PONTUAÇÃO:** Soma de Gravíssima=6, Grave=4, Média=2, Leve=1, ÉTICA=4. Se pts > 10, res="reprovado". RETORNE SOMENTE O JSON FINAL.
+**PASSO 6 — PONTUAÇÃO (REGRA PÉTREA E IMUTÁVEL, Res. CONTRAN 1.020/2025 / MBEDV):** Some APENAS os pontos das infrações de TRÂNSITO sustentadas: Gravíssima=6, Grave=4, Média=2, Leve=1. **LIMITE DE APROVAÇÃO = 10 PONTOS.** Soma ≤ 10 ⇒ `res="aprovado"`. Só `res="reprovado"` se a soma for > 10, OU se houver falta ELIMINATÓRIA expressamente prevista no MBEDV confirmada. **NUNCA reprove com soma ≤ 10 pontos sem falta eliminatória do MBEDV** — não existe limite menor (não há limite 3 nem 5 da antiga Res. 789/2020). **CONDUTA ÉTICA NÃO PONTUA:** xingamentos, gritos, ameaças e afins são SINALIZADOS para a comissão humana avaliar, mas NÃO somam pontos nem entram no cálculo do limite de 10 — não reprovam o candidato automaticamente. RETORNE SOMENTE O JSON FINAL.
 
 ## Catálogo operacional — Parte A (Gravíssimas + Graves)
 

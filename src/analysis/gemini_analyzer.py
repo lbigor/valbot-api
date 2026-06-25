@@ -1522,29 +1522,16 @@ def _normalize_v26(
     if aprovado is None:
         aprovado = pontuacao_total <= 10
 
-    # IMPERÍCIA REITERADA (MBEDV "condições mínimas de domínio do veículo"):
-    # 3+ ocorrências da MESMA falta mecânica (MBEDV-MEC-*) reprova o candidato
-    # mesmo que a soma fique ≤10. Ex: 4 estols (8pts) → reprovado por não
-    # apresentar domínio mínimo. Regra determinística — não depende do modelo.
-    from collections import Counter as _Counter
-
-    _mec = _Counter(
-        d.get("id")
-        for d in detectadas
-        if str(d.get("id") or "").startswith("MBEDV-MEC") and d.get("status") == "detectada"
-    )
-    _impericia = {mid: c for mid, c in _mec.items() if c >= 3}
-    if _impericia and aprovado:
-        aprovado = False
-        _det = "; ".join(f"{mid} ×{c}" for mid, c in _impericia.items())
-        raw.setdefault("rejection_reason", "impericia_reiterada")
-        raw["rejection_details"] = (
-            f"Reprovado por imperícia reiterada (condições mínimas de domínio "
-            f"do veículo, MBEDV): {_det}. Soma de pontos ({pontuacao_total}) "
-            f"ficaria ≤10, mas a repetição da mesma falta mecânica caracteriza "
-            f"falta de domínio."
-        )
-        log.info("v26: imperícia reiterada → reprovado (%s)", _det)
+    # REGRA PÉTREA (Res. CONTRAN 1.020/2025, MBEDV): o veredito é determinado
+    # ÚNICA E EXCLUSIVAMENTE pela soma de pontos das infrações de trânsito
+    # sustentadas. Soma <= 10 ⇒ APROVADO; soma > 10 ⇒ REPROVADO. NUNCA reprovar
+    # com <= 10 pontos sem uma falta ELIMINATÓRIA expressamente prevista no
+    # MBEDV. Não há reprovação por "imperícia reiterada", conduta ou qualquer
+    # heurística fora do MBEDV — a antiga regra determinística de 3+ faltas
+    # mecânicas (que reprovava com <= 10 pts) foi REMOVIDA por não ter base no
+    # MBEDV/1.020 como falta eliminatória; condições mínimas de domínio do
+    # veículo viram sinal de CONDUTA para a comissão humana, nunca reprovação
+    # automática da IA.
 
     vid = raw.get("video") or {}
     return {
