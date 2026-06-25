@@ -7922,7 +7922,7 @@ def _laudo_pdf_html(laudo: dict) -> str:
         )
         parts.append(
             "<p class='foot'>Documento gerado automaticamente pelo sistema ValBot. "
-            "Veredito da IA tem caráter de apoio à decisão; a homologação final compete "
+            "Veredito do Val tem caráter de apoio à decisão; a homologação final compete "
             "à autoridade examinadora competente.</p>"
         )
         parts.append("</div>")
