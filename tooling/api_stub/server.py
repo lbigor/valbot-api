@@ -4130,6 +4130,12 @@ def _refresh_videos_cache(*, include_test: bool = False) -> list[dict]:
                 if r.get("validator_confianca") is not None
                 else None,
                 "cost_usd": float(r["cost_usd"]) if r.get("cost_usd") is not None else None,
+                # Stage canônico da v_exams_overview (migration 032): a fila do
+                # Auditor (only_unresolved) filtra por stage=='auditoria' — divergência
+                # COM comitê concluído. Expostos junto os flags-base do core.
+                "stage": r.get("stage"),
+                "divergente": bool(r.get("divergente")),
+                "comite_concluido": bool(r.get("comite_concluido")),
             }
         )
     # Divergência pós-comitê (feature §10): anexa a decisão do Comitê pra a fila
@@ -4577,8 +4583,11 @@ def list_videos(include_test: bool = False, only_unresolved: bool = False):
       • `include_test=true` — devolve TODOS os exames (inclusive fixtures
         de dev/teste cuja origem não é AWS S3). Default `false`: a fila
         operacional só mostra vídeos reais (source_url em amazonaws.com/s3://).
-      • `only_unresolved=true` — só entram na fila exames cuja divergência NÃO
-        foi resolvida pelo Comitê (tipo_divergencia_pos_comite != "sem_divergencia").
+      • `only_unresolved=true` — fila do Auditor: SÓ exames com stage='auditoria'
+        (divergência real + Comitê concluído). O Comitê é SEGUNDA OPINIÃO: divergência
+        ainda SEM comitê fica em 'comite' e NÃO vai ao auditor; divergência COM comitê
+        vai ao auditor INDEPENDENTE do parecer do comitê (inclusive quando concordou
+        com o examinador — tipo_divergencia_pos_comite='sem_divergencia' NÃO esconde mais).
 
     Toggle de emergência: `VALBOT_USE_DB_VIDEOS=0` ativa o caminho file-based
     legado abaixo. Manter por 1 semana após F5 prod-stable; remover em F7.
@@ -4594,23 +4603,19 @@ def list_videos(include_test: bool = False, only_unresolved: bool = False):
         _list_videos_from_db(include_test=include_test)  # garante cache populado
         ck = _VIDEOS_CACHE.get(include_test)
         if only_unresolved:
-            # Filtro da fila: SÓ exames com DIVERGÊNCIA real (resultado oficial do
-            # examinador != veredito da IA) e cuja divergência o Comitê não
-            # resolveu. O Comitê só roda em divergência — sem divergência, o exame
-            # nem entra na fila do auditor. (Divergência de resultado A/R; pontuação
-            # e infrações exigem o Motor de Comparação, ainda não no caminho quente.)
+            # Fila do Auditor: SÓ exames com stage='auditoria' (canônico da
+            # v_exams_overview, migration 032) = divergência real (oficial A/R !=
+            # veredito da IA) E Comitê CONCLUÍDO. O Comitê é SEGUNDA OPINIÃO:
+            #   • divergência SEM comitê → stage='comite' → NÃO vai ao auditor
+            #     (aguarda a 2ª opinião);
+            #   • divergência COM comitê → stage='auditoria' → vai ao Auditor,
+            #     que é o DECISOR, INDEPENDENTE do parecer do comitê — inclusive
+            #     quando o comitê concordou com o examinador. O antigo filtro
+            #     tipo_divergencia_pos_comite != 'sem_divergencia' escondia esses
+            #     casos e estava ERRADO; foi removido. O parecer do comitê segue
+            #     anexado (tipo_divergencia_pos_comite) como subsídio, não filtro.
             data = (ck or {}).get("data", [])
-
-            def _diverge(i):
-                of = (i.get("resultado_exame") or "").strip().upper()
-                ap = i.get("aprovado")
-                return (of == "A" and ap is False) or (of == "R" and ap is True)
-
-            return [
-                i
-                for i in data
-                if i.get("tipo_divergencia_pos_comite") != "sem_divergencia" and _diverge(i)
-            ]
+            return [i for i in data if i.get("stage") == "auditoria"]
         if ck is not None and ck.get("json") is not None:
             return Response(content=ck["json"], media_type="application/json")
         return (ck or {}).get("data", [])
