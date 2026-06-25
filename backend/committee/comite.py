@@ -87,6 +87,62 @@ def _parse_resultado_comite(valor) -> str | None:
     return None
 
 
+def _derivar_resultado_comite(
+    explicito: str | None,
+    comparacao: Comparacao,
+    *,
+    pontos_sustentados: int | None = None,
+    sustenta: int | None = None,
+) -> str:
+    """Crava SEMPRE o veredito A/R do Comitê (③) — nunca devolve None.
+
+    Regra de negócio (Igor, dura): o Comitê é "máquina fria" e DEVE cravar
+    APROVADO ou REPROVADO. Antes, fora do caso ``SEM_DIVERGENCIA`` o veredito
+    ficava NULL e a tela mostrava "aguardando" — foi o bug das 74 OS. Este
+    helper fecha esse buraco escolhendo, por ordem de precedência:
+
+      1. o A/R EXPLÍCITO que o modelo cravou (``resultado_comite`` da IA), se houver;
+      2. a PONTUAÇÃO das infrações sustentadas — excede ``LIMITE_APROVACAO`` →
+         'R', senão 'A' (deriva o veredito da própria reavaliação do Comitê);
+      3. o veredito da IA crua ② (``comparacao.resultado_calculado``), que reflete
+         as infrações remanescentes pós-exclusões;
+      4. o veredito do EXAMINADOR ① (``comparacao.resultado_oficial``);
+      5. garantia final: 'A' — máquina fria NÃO reprova sem falta confirmada.
+
+    ``pontos_sustentados`` (quando o chamador sabe os pontos das infrações que o
+    Comitê sustentou) tem prioridade sobre ``comparacao.pontuacao_calculada``;
+    ``sustenta`` é o nº de infrações sustentadas (0 → ninguém reprova → 'A')."""
+    # (1) o modelo cravou explicitamente.
+    rc = _parse_resultado_comite(explicito)
+    if rc in ("A", "R"):
+        return rc
+
+    # (2) deriva da pontuação sustentada. Sem nenhuma infração sustentada o
+    # Comitê não tem como reprovar (máquina fria) → APROVADO.
+    if sustenta == 0:
+        return "A"
+    pts = pontos_sustentados if pontos_sustentados is not None else comparacao.pontuacao_calculada
+    if pts is not None:
+        return "R" if pts > LIMITE_APROVACAO else "A"
+
+    # (3) veredito da IA crua ② (infrações remanescentes pós-exclusões).
+    rc = _parse_resultado_comite(
+        comparacao.resultado_calculado.value if comparacao.resultado_calculado else None
+    )
+    if rc in ("A", "R"):
+        return rc
+
+    # (4) veredito do examinador ①.
+    rc = _parse_resultado_comite(
+        comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
+    )
+    if rc in ("A", "R"):
+        return rc
+
+    # (5) garantia final — nunca NULL.
+    return "A"
+
+
 def _build_prompt_comite(infracoes: list[dict], rubrica: str, categoria: str | None = None) -> str:
     """Prompt restrito às infrações encontradas — o coração do Comitê.
 
@@ -194,13 +250,16 @@ def _laudo_deterministico(
         for c in deteccao.comentarios_examinador
     ]
 
-    # Sem IA não há reavaliação própria; o Comitê só crava veredito quando NÃO há
-    # divergência (espelha o examinador). Em divergência, fica NULL (humano decide).
+    # Sem IA não há reavaliação própria, mas o Comitê (③, máquina fria) DEVE
+    # mesmo assim cravar A/R — NUNCA fica NULL/"aguardando" (bug das 74 OS). Sem
+    # divergência, espelha o examinador; em divergência, deriva o A/R da
+    # pontuação calculada / veredito da IA crua / examinador (ver helper).
     res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
-    resultado_comite = (
+    resultado_comite = _derivar_resultado_comite(
         _parse_resultado_comite(res_examinador)
         if comparacao.tipo_divergencia == TipoDivergencia.SEM_DIVERGENCIA
-        else None
+        else None,
+        comparacao,
     )
     # conclusao_comite e tipo_divergencia_pos_comite são DERIVADOS do A/R do Comitê
     # vs o A/R do examinador — nunca cravados de forma a contradizer o veredito.
@@ -495,13 +554,14 @@ def _laudo_de_justificativa(
         for i in infs
     ]
     sustenta = sum(1 for i in infs if str(i.get("veredicto")) == "sustenta")
-    # Veredito explícito do Comitê (③) — ÚNICA fonte de verdade do nível: primeiro
-    # o que o modelo cravou ("resultado_comite" A/R); última garantia: sem infração
-    # SUSTENTADA → APROVADO (máquina fria não pode reprovar sem falta confirmada).
+    # Veredito explícito do Comitê (③) — SEMPRE crava A/R, nunca NULL: primeiro o
+    # que o modelo devolveu ("resultado_comite" A/R); senão deriva da pontuação /
+    # veredito ② / examinador ①; sem infração SUSTENTADA → APROVADO (máquina fria
+    # não reprova sem falta confirmada). Ver _derivar_resultado_comite.
     res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
-    resultado_comite = _parse_resultado_comite(raw.get("resultado_comite"))
-    if resultado_comite is None and infs and sustenta == 0:
-        resultado_comite = "A"
+    resultado_comite = _derivar_resultado_comite(
+        raw.get("resultado_comite"), comparacao, sustenta=sustenta
+    )
     # conclusao_comite e tipo_divergencia_pos_comite NÃO são cravados pelo modelo —
     # são DERIVADOS do A/R do Comitê vs o A/R do examinador (coerência garantida).
     conclusao, tipo_pos = _derivar_relacao_comite(
@@ -524,8 +584,9 @@ def _laudo_de_justificativa(
 
 def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float) -> LaudoComite:
     # Veredito A/R do Comitê = ÚNICA fonte; conclusao/tipo_divergencia_pos DERIVADOS.
+    # SEMPRE crava A/R (nunca NULL): modelo → pontuação ② → examinador ① → 'A'.
     res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
-    resultado_comite = _parse_resultado_comite(raw.get("resultado_comite"))
+    resultado_comite = _derivar_resultado_comite(raw.get("resultado_comite"), comparacao)
     conclusao, tipo_pos = _derivar_relacao_comite(
         resultado_comite, res_examinador, comparacao.tipo_divergencia
     )
