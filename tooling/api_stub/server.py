@@ -2845,12 +2845,20 @@ def _enqueue_reanalysis(
     return {"analysis_id": analysis_id, "status": "queued", "video_ref": video_ref}
 
 
-def _buscar_resultado_techpratico(hash_: str) -> dict:
+def _buscar_resultado_techpratico(hash_: str, *, origem: str = "manual") -> dict:
     """Busca o resultado OFICIAL do exame no TechPrático (inbound) e persiste.
 
     POST /conversao/dados-exame-analise-ia {idAgendamento=external_id, id_analise=hash}.
     Salva `resultado_exame` (cofre — COALESCE, nunca apaga) + `training_annotations`
     em `exams`. Devolve o status por exame (ok | sem_idagendamento | erro*).
+
+    Regra de negócio (Igor, dura): CADA chamada que de fato consulta o TechPrático
+    é UMA tentativa e grava UMA linha em exam_busca_oficial_log (append-only,
+    migration 034) — com SUCESSO OU FALHA. Essa é a fonte da classificação
+    RECEBIDO (0 tentativas) × AGUARDANDO RESULTADO OFICIAL (>=1) na
+    v_exams_overview; um exame já buscado NUNCA volta a Recebido. O contador
+    buscas_oficial (031) segue sendo incrementado por COMPATIBILIDADE, mas a
+    classificação NÃO depende mais dele. `origem` ∈ {manual, lote, agendado}.
     """
     import urllib.error
     import urllib.request
@@ -2864,7 +2872,8 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
         return {"hash": hash_, "status": "nao_encontrado"}
     ext = _r[0]
     if not ext:
-        # idAgendamento não foi salvo na ingestão (exame antigo) — nada a buscar.
+        # idAgendamento não foi salvo na ingestão (exame antigo) — nada a buscar
+        # no TechPrático, logo NÃO é uma tentativa (não loga).
         return {"hash": hash_, "status": "sem_idagendamento"}
 
     base = os.environ.get("VALBOT_TECHPRATICO_BASE", "https://convert.se.techpratico.net")
@@ -2883,13 +2892,17 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
         with urllib.request.urlopen(req, timeout=30) as r:
             resp = json.load(r)
     except urllib.error.HTTPError as e:
-        return {
-            "hash": hash_,
-            "status": "erro_http",
-            "code": e.code,
-            "msg": e.read().decode()[:200],
-        }
+        msg = e.read().decode()[:200]
+        # Tentativa que de fato consultou o TechPrático (e falhou) — É uma
+        # tentativa: loga p/ não cair de volta em "Recebido".
+        db.log_busca_oficial(
+            hash_, origem=origem, resultado_recebido=None, detalhe=f"erro_http {e.code}: {msg}"
+        )
+        return {"hash": hash_, "status": "erro_http", "code": e.code, "msg": msg}
     except Exception as e:
+        db.log_busca_oficial(
+            hash_, origem=origem, resultado_recebido=None, detalhe=f"erro: {str(e)[:200]}"
+        )
         return {"hash": hash_, "status": "erro", "msg": str(e)[:200]}
 
     resultado = resp.get("resultado_exame")
@@ -2910,9 +2923,9 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
         sets.append("status = CASE WHEN status = %s THEN %s ELSE status END")
         vals.extend([STATUS_RECEBIDO, "queued"])
     else:
-        # Oficial AINDA pendente → contabiliza 1 ciclo de validação. É o que move
-        # o exame de RECEBIDO (buscas_oficial=0) para AGUARDANDO RESULTADO OFICIAL
-        # (buscas_oficial>=1) no Kanban (stage da v_exams_overview, migration 031).
+        # Oficial AINDA pendente → incrementa o contador 031 por COMPATIBILIDADE
+        # (a classificação do Kanban passou a usar o LOG append-only, não este
+        # contador). Mantido pra telas/relatórios que ainda leem buscas_oficial.
         sets.append("buscas_oficial = COALESCE(buscas_oficial, 0) + 1")
         sets.append("ultima_busca_oficial = NOW()")
     vals.append(hash_)
@@ -2921,7 +2934,22 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
             if c is not None:
                 c.execute(f"UPDATE exams SET {', '.join(sets)} WHERE hash = %s", vals)
     except Exception as e:
+        # A consulta ao TechPrático ACONTECEU (é uma tentativa) — loga mesmo que
+        # a persistência do resultado tenha falhado.
+        db.log_busca_oficial(
+            hash_,
+            origem=origem,
+            resultado_recebido=(str(resultado).strip().upper() if resultado else None),
+            detalhe=f"erro_persist: {str(e)[:200]}",
+        )
         return {"hash": hash_, "status": "erro_persist", "msg": str(e)[:200]}
+    # Tentativa bem-sucedida — grava no log append-only (fonte da classificação).
+    db.log_busca_oficial(
+        hash_,
+        origem=origem,
+        resultado_recebido=(str(resultado).strip().upper() if resultado else ""),
+        detalhe=f"ok n_annotations={len(annots)}",
+    )
     if _oficial_definitivo:
         log.info(
             "buscar-resultado: oficial %s chegou p/ %s — recebido→queued (se aplicável)",
@@ -2939,7 +2967,7 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
 @app.post("/api/exams/{hash}/buscar-resultado")
 def exam_buscar_resultado(hash: str, _sess: dict = Depends(require_session)):
     """Busca o resultado oficial do exame no TechPrático e persiste (single)."""
-    return _buscar_resultado_techpratico(hash)
+    return _buscar_resultado_techpratico(hash, origem="manual")
 
 
 class _BuscarResultadosIn(BaseModel):
@@ -2970,13 +2998,16 @@ def _hashes_oficial_pendente(limit: int = 1000) -> list[str]:
         return []
 
 
-def _buscar_resultados_lote(hashes: list[str] | None = None, limit: int = 1000) -> dict:
+def _buscar_resultados_lote(
+    hashes: list[str] | None = None, limit: int = 1000, *, origem: str = "lote"
+) -> dict:
     """Roda UM ciclo de busca do oficial. Sem `hashes` → busca TODOS os exames sem
-    oficial definitivo (com external_id). Idempotente: cada exame que continuar
-    sem oficial incrementa buscas_oficial; o que receber A/R é promovido p/ queued.
-    Reusado pelo endpoint (Kanban/Cloud Scheduler) e pelo worker agendado."""
+    oficial definitivo (com external_id). Idempotente: cada exame consultado gera
+    UMA linha no log append-only (exam_busca_oficial_log); o que receber A/R é
+    promovido p/ queued. Reusado pelo endpoint (Kanban/Cloud Scheduler, origem
+    'lote') e pelo worker agendado (origem 'agendado')."""
     alvo = hashes if hashes else _hashes_oficial_pendente(limit)
-    res = [_buscar_resultado_techpratico(h) for h in alvo[:limit]]
+    res = [_buscar_resultado_techpratico(h, origem=origem) for h in alvo[:limit]]
     ok = sum(1 for r in res if r.get("status") == "ok")
     return {"total": len(res), "ok": ok, "resultados": res}
 
@@ -3041,7 +3072,7 @@ def _busca_oficial_worker() -> None:
                 if agora.hour in _BUSCA_OFICIAL_HORARIOS and slot != ultimo_slot:
                     ultimo_slot = slot
                     log.info("busca-oficial: ciclo de validação %02dh iniciado", agora.hour)
-                    r = _buscar_resultados_lote(None)
+                    r = _buscar_resultados_lote(None, origem="agendado")
                     log.info(
                         "busca-oficial: ciclo %02dh concluído — %d buscados, %d ok",
                         agora.hour,

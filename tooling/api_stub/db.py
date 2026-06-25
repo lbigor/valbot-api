@@ -686,6 +686,43 @@ def log_event(
         log.warning("log_event falhou hash=%s action=%s: %s", hash_[:12], action, e)
 
 
+def log_busca_oficial(
+    hash_: str,
+    origem: str = "manual",
+    resultado_recebido: str | None = None,
+    detalhe: str | None = None,
+) -> None:
+    """Registra UMA tentativa de busca do resultado oficial (TechPrático) na tabela
+    APPEND-ONLY exam_busca_oficial_log (migration 034). Abre a própria conexão.
+
+    Regra de negócio (Igor, dura): CADA chamada de busca do oficial — single, lote
+    ou agendado, com SUCESSO OU FALHA — gera UMA linha aqui. É a fonte da
+    classificação RECEBIDO (0 linhas) vs AGUARDANDO RESULTADO OFICIAL (>=1 linha)
+    na v_exams_overview. NUNCA UPDATE/DELETE — só INSERT. Best-effort: nunca quebra
+    a busca em si (se o log falhar, a tentativa segue)."""
+    if _DISABLED:
+        return
+    try:
+        with _conn() as c:
+            if c is None:
+                return
+            c.execute(
+                """
+                INSERT INTO exam_busca_oficial_log (exam_id, origem, resultado_recebido, detalhe)
+                SELECT id, %s, %s, %s FROM exams WHERE hash = %s
+                """,
+                (origem, resultado_recebido, detalhe, hash_),
+            )
+        log.info(
+            "db.log_busca_oficial hash=%s origem=%s recebido=%s",
+            hash_[:12],
+            origem,
+            resultado_recebido,
+        )
+    except Exception as e:
+        log.warning("log_busca_oficial falhou hash=%s: %s", hash_[:12], e)
+
+
 def log_access(hash_: str, actor: str | None, ip: str | None, action: str = "read") -> None:
     """Registra acesso de LEITURA a um exame (vídeo/laudo) na trilha — abre a
     própria conexão. Best-effort: nunca quebra a resposta ao usuário."""
