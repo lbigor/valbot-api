@@ -54,6 +54,96 @@ from pydantic import BaseModel, Field
 
 from tooling.api_stub import db  # Postgres helper (no-op se VALBOT_DB_DISABLED=1)
 
+# =============================================================================
+# Discordância PÓS-COMITÊ — fonte única da regra (Frente B).
+# =============================================================================
+# Regra de negócio (Igor): o % de discordância é calculado APÓS o Comitê de IA
+# (③), não comparando o examinador (① resultado_exame) com a IA crua
+# (② aprovado). Para cada exame comparável (resultado_exame ∈ {A,R} E
+# aprovado IS NOT NULL) define-se o "resultado_valbot":
+#   • CONSENSO  (a IA crua concorda com o examinador) → resultado_valbot =
+#     resultado_exame (nunca discorda).
+#   • DIVERGÊNCIA + laudo de comitê MAIS RECENTE com resultado_comite ∈ {A,R}
+#     → resultado_valbot = resultado_comite (o veredito frio do Comitê manda).
+#   • DIVERGÊNCIA + resultado_comite NULL (ainda não passou pelo comitê) →
+#     PENDENTE: fica fora do denominador (não conta concordância nem
+#     discordância); é exposto separadamente como `pendentes_comite`.
+# discordante  ⇔ resultado_valbot <> resultado_exame.
+# % discordância = 100 * discordantes / comparáveis_resolvidos.
+#
+# `_COMITE_RECENTE_JOIN` traz, por exame (chaveado por exams.id), o
+# resultado_comite do laudo MAIS RECENTE (DISTINCT ON / created_at DESC). A
+# coluna `cl.resultado_comite` é o contrato compartilhado com a Frente A
+# (exam_comite_laudos.resultado_comite CHAR(1), 'A'/'R', NULL enquanto o comitê
+# não rodou). O `<alias>` é a tabela/visão de exames já no FROM do chamador.
+#
+# Uso: formate com o alias do exame no FROM do chamador, ex.:
+#   _COMITE_RECENTE_JOIN.format(exam="exams")        → join por exams.id
+#   _COMITE_RECENTE_JOIN.format(exam="v_exams_overview")
+
+
+def _comite_join(exam_alias: str) -> str:
+    """LEFT JOIN LATERAL com o laudo de comitê MAIS RECENTE do exame (por
+    created_at DESC). Expõe `cl.resultado_comite` (CHAR(1) 'A'/'R' ou NULL).
+    `exam_alias` é o nome da tabela/visão de exames já presente no FROM."""
+    return (
+        "LEFT JOIN LATERAL ("
+        "  SELECT l.resultado_comite"
+        "  FROM exam_comite_laudos l"
+        f"  WHERE l.exam_id = {exam_alias}.id"
+        "  ORDER BY l.created_at DESC"
+        "  LIMIT 1"
+        ") cl ON TRUE"
+    )
+
+
+# Expressão SQL booleana: TRUE quando o exame é COMPARÁVEL e NÃO está pendente
+# de comitê — i.e. entra no denominador do % de discordância. Pendente =
+# divergência (IA crua diverge do examinador) ainda sem resultado_comite.
+_COMPARAVEL_RESOLVIDO_SQL = (
+    "resultado_exame IN ('A','R') AND aprovado IS NOT NULL "
+    "AND ( (resultado_exame='A') = (aprovado) "  # consenso → sempre resolvido
+    "      OR cl.resultado_comite IN ('A','R') )"  # divergência → só com comitê
+)
+
+# Expressão SQL para o "resultado_valbot" (CHAR 'A'/'R') de um comparável
+# RESOLVIDO. Consenso → resultado_exame; divergência resolvida → resultado_comite.
+_RESULTADO_VALBOT_SQL = (
+    "CASE WHEN (resultado_exame='A') = (aprovado) "
+    "     THEN resultado_exame "
+    "     ELSE cl.resultado_comite END"
+)
+
+# Pendente de comitê: divergência (IA crua <> examinador) sem resultado_comite.
+_PENDENTE_COMITE_SQL = (
+    "resultado_exame IN ('A','R') AND aprovado IS NOT NULL "
+    "AND (resultado_exame='A') <> (aprovado) "
+    "AND cl.resultado_comite IS NULL"
+)
+
+
+def _resultado_valbot_py(resultado_exame, aprovado, resultado_comite):
+    """Versão Python da regra pós-comitê (espelha _RESULTADO_VALBOT_SQL).
+
+    Retorna uma tupla (estado, resultado_valbot):
+      • ("nao_comparavel", None) — não entra na conta (sem oficial A/R ou sem
+        veredito da IA).
+      • ("pendente", None) — divergência ainda sem comitê (fora do denominador).
+      • ("resolvido", 'A'|'R') — comparável resolvido; resultado_valbot já é o
+        veredito pós-comitê (= examinador no consenso, = comitê na divergência).
+    """
+    of = (resultado_exame or "").strip().upper()
+    if of not in ("A", "R") or aprovado is None:
+        return ("nao_comparavel", None)
+    ia_aprovou = bool(aprovado)
+    consenso = (of == "A") == ia_aprovou
+    if consenso:
+        return ("resolvido", of)
+    rc = (resultado_comite or "").strip().upper()
+    if rc in ("A", "R"):
+        return ("resolvido", rc)
+    return ("pendente", None)
+
 
 def require_api_key(scope: str):
     """Dependency factory: valida X-API-Key e checa scope. 401 se inválida/sem permissão."""
@@ -1010,25 +1100,37 @@ def v2_dashboard(dias: int = 30):
     except Exception as e:
         log.warning("v2_dashboard falhou: %s", e)
         return zero
-    # Concordância TechPrático(examinador) × ValBot(IA) — o regulatorios() modular
-    # usa exam_divergencias (vazia em prod) e zera. Calculamos do veredito real:
-    # concorda = (oficial A & IA aprovou) ou (oficial R & IA reprovou).
+    # Concordância TechPrático(examinador ①) × ValBot — agora PÓS-COMITÊ (Frente
+    # B). O regulatorios() modular usa exam_divergencias (vazia em prod) e zera.
+    # Calculamos do veredito real aplicando a regra pós-comitê: o resultado_valbot
+    # é o do examinador no consenso e o do Comitê (③) na divergência; divergência
+    # ainda sem comitê = PENDENTE (fora do denominador). Direto em SQL (a view
+    # v_exams_overview não expõe resultado_comite) — espelha /api/dashboard/valbot.
     try:
-        rows = db.list_resultados(dias=int(dias), limit=20000) or []
-        conc = comp = 0
-        for r in rows:
-            of = (r.get("resultado_exame") or "").strip().upper()
-            ap = r.get("aprovado")
-            if of in ("A", "R") and ap is not None:
-                comp += 1
-                if (of == "A" and ap is True) or (of == "R" and ap is False):
-                    conc += 1
-        if comp:
-            reg = res.setdefault("regulatorios", {})
-            reg["concordancia_resultado_pct"] = round(100.0 * conc / comp, 1)
-            reg["comparaveis"] = comp
-            reg["concordantes"] = conc
-            reg["divergentes"] = comp - conc
+        from tooling.api_stub import db as _db
+
+        with _db._conn() as c:  # type: ignore[attr-defined]
+            if c is not None:
+                cj = _comite_join("exams")
+                row = c.execute(
+                    f"SELECT "
+                    f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                    f"  AND ({_RESULTADO_VALBOT_SQL}) = resultado_exame), "
+                    f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                    f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame), "
+                    f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) "
+                    f"FROM exams {cj} "
+                    f"WHERE created_at >= NOW() - (%s || ' days')::interval",
+                    (str(int(dias)),),
+                ).fetchone()
+                conc, div, pend = int(row[0] or 0), int(row[1] or 0), int(row[2] or 0)
+                comp = conc + div  # comparáveis RESOLVIDOS (pendentes fora)
+                reg = res.setdefault("regulatorios", {})
+                reg["concordancia_resultado_pct"] = round(100.0 * conc / comp, 1) if comp else None
+                reg["comparaveis"] = comp
+                reg["concordantes"] = conc
+                reg["divergentes"] = div
+                reg["pendentes_comite"] = pend
     except Exception as e:
         log.warning("v2_dashboard concordancia falhou: %s", e)
     # Provisão: câmbio USD→BRL dinâmico (app_settings.usd_brl). Default 5.40.
@@ -3886,6 +3988,7 @@ def dashboard_valbot(
         "concordantes": 0,
         "divergentes": 0,
         "comparaveis": 0,
+        "pendentes_comite": 0,
         # Indicadores regulatórios (v2.0 §15):
         "interrompidos": 0,
         "taxa_interrupcao_pct": None,
@@ -3918,17 +4021,28 @@ def dashboard_valbot(
             ).fetchone()
             out["custo_total_usd"] = float(row[0] or 0)
             out["custo_por_video_usd"] = float(row[1] or 0)
-            # Assertividade = concordância sobre os comparáveis A/R (N excluído).
+            # Assertividade PÓS-COMITÊ (Frente B): o resultado_valbot de cada
+            # exame é o veredito do examinador no consenso e o do Comitê (③) na
+            # divergência. Discordante ⇔ resultado_valbot <> resultado_exame.
+            # Divergência ainda sem comitê = PENDENTE (fora do denominador).
+            cj = _comite_join("exams")
             arow = c.execute(
                 f"SELECT "
-                f"COUNT(*) FILTER (WHERE (resultado_exame='A')=(aprovado)), "
-                f"COUNT(*) FILTER (WHERE (resultado_exame='A')<>(aprovado)) "
-                f"{base} AND status='processed' AND aprovado IS NOT NULL "
-                f"AND resultado_exame IN ('A','R')"
+                # concordantes = resolvidos onde resultado_valbot == examinador
+                f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                f"  AND ({_RESULTADO_VALBOT_SQL}) = resultado_exame), "
+                # divergentes = resolvidos onde resultado_valbot != examinador
+                f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame), "
+                # pendentes de comitê (divergência crua ainda sem veredito ③)
+                f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) "
+                f"{base} {cj} AND exams.status='processed'"
             ).fetchone()
             conc, div = int(arow[0] or 0), int(arow[1] or 0)
-            comp = conc + div
+            pend = int(arow[2] or 0)
+            comp = conc + div  # comparáveis RESOLVIDOS (pendentes excluídos)
             out["concordantes"], out["divergentes"], out["comparaveis"] = conc, div, comp
+            out["pendentes_comite"] = pend
             out["assertividade_pct"] = round(100.0 * conc / comp, 1) if comp else None
 
             # --- Indicadores regulatórios (v2.0 §15) ---
@@ -3945,20 +4059,23 @@ def dashboard_valbot(
                 round(100.0 * interromp / com_veredito, 1) if com_veredito else None
             )
 
-            # Divergência (IA × examinador) quebrada por dimensão. Reaproveita o
-            # mesmo critério de comparáveis (A/R, processed, aprovado NOT NULL).
+            # Divergência PÓS-COMITÊ quebrada por dimensão. Mesmo critério da
+            # assertividade: resolvidos (consenso OU divergência com comitê) no
+            # denominador; pendentes de comitê expostos à parte por dimensão.
             def _div_por(coluna: str, chave: str) -> list[dict]:
                 rows = c.execute(
-                    f"SELECT COALESCE(NULLIF(TRIM({coluna}), ''), '—') AS k, "
-                    f"COUNT(*) FILTER (WHERE (resultado_exame='A')=(aprovado)) AS conc, "
-                    f"COUNT(*) FILTER (WHERE (resultado_exame='A')<>(aprovado)) AS div "
-                    f"{base} AND status='processed' AND aprovado IS NOT NULL "
-                    f"AND resultado_exame IN ('A','R') "
+                    f"SELECT COALESCE(NULLIF(TRIM(exams.{coluna}), ''), '—') AS k, "
+                    f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                    f"  AND ({_RESULTADO_VALBOT_SQL}) = resultado_exame) AS conc, "
+                    f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                    f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame) AS div, "
+                    f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) AS pend "
+                    f"{base} {cj} AND exams.status='processed' "
                     f"GROUP BY 1 ORDER BY div DESC, conc DESC"
                 ).fetchall()
                 res = []
-                for k, cc, dd in rows:
-                    cc, dd = int(cc or 0), int(dd or 0)
+                for k, cc, dd, pp in rows:
+                    cc, dd, pp = int(cc or 0), int(dd or 0), int(pp or 0)
                     tot = cc + dd
                     res.append(
                         {
@@ -3966,6 +4083,7 @@ def dashboard_valbot(
                             "concordantes": cc,
                             "divergentes": dd,
                             "comparaveis": tot,
+                            "pendentes_comite": pp,
                             "divergencia_pct": round(100.0 * dd / tot, 1) if tot else None,
                         }
                     )
@@ -4058,13 +4176,20 @@ def dashboard_diario(
                       conta — a view já normaliza isso em `resultado_oficial`).
       • auditados   — quantos a IA Val avaliou (resultado calculado presente,
                       i.e. `aprovado IS NOT NULL`).
-      • divergentes — dos COMPARÁVEIS, quantos o oficial diverge da IA
-                      ((resultado_exame='A') <> aprovado). Usa o campo canônico
-                      `divergente` da view (só verdadeiro com oficial A/R).
-      • comparaveis — têm oficial E foram auditados (base do % de discordância).
+      • divergentes — dos COMPARÁVEIS RESOLVIDOS, quantos o resultado PÓS-COMITÊ
+                      (resultado_valbot) diverge do examinador. resultado_valbot =
+                      examinador no consenso, = Comitê (③) na divergência.
+      • comparaveis — comparáveis RESOLVIDOS (têm oficial A/R E auditado E, se
+                      divergência IA×examinador, JÁ passaram pelo comitê). Base
+                      do % de discordância.
+      • pendentes_comite — divergência IA×examinador ainda SEM laudo de comitê:
+                      ficam FORA do denominador (não contam como concord. nem
+                      discord.) até o Comitê rodar.
 
     O frontend deriva: % Auditado = auditados/recebidos; % de Discordância =
-    divergentes/comparaveis (divisão por zero → "—" na UI).
+    divergentes/comparaveis (divisão por zero → "—" na UI). Semântica PÓS-COMITÊ
+    (Frente B): a discordância passa a usar o veredito do Comitê de IA, não a IA
+    crua (exams.aprovado).
 
     Resiliente: DB off / erro de query ⇒ {items: [], source: "mock"}. Protegido
     por require_session, igual aos demais dashboards. NÃO altera endpoints
@@ -4089,25 +4214,29 @@ def dashboard_diario(
             # derrubava a query inteira para o fallback mock.
             rows = c.execute(
                 # Fonte = tabela `exams` (mesma do /api/dashboard/valbot, que
-                # funciona). A v_exams_overview NÃO expõe `resultado_oficial`
-                # nem `divergente` → a query antiga estourava e caía em mock.
-                # Aqui derivamos tudo das colunas reais de exams:
+                # funciona). Derivamos tudo das colunas reais de exams + o laudo
+                # de comitê MAIS RECENTE (LEFT JOIN LATERAL), aplicando a regra
+                # PÓS-COMITÊ (Frente B):
                 #   oficial presente ⇔ resultado_exame ∈ {A,R} (N/NULL não conta)
                 #   auditado         ⇔ aprovado IS NOT NULL
-                #   divergente       ⇔ (resultado_exame='A') <> aprovado (só comparável)
-                "SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS dia, "
+                #   divergente       ⇔ resultado_valbot (pós-comitê) <> examinador
+                #   comparaveis      ⇔ comparáveis RESOLVIDOS (pendentes de comitê
+                #                       NÃO entram no denominador do % discordância)
+                #   pendentes_comite ⇔ divergência crua ainda sem veredito do comitê
+                "SELECT to_char(date_trunc('day', exams.created_at), 'YYYY-MM-DD') AS dia, "
                 "COUNT(*) AS recebidos, "
                 "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R')) AS com_oficial, "
                 "COUNT(*) FILTER (WHERE aprovado IS NOT NULL) AS auditados, "
-                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') AND aprovado IS NOT NULL "
-                "                 AND ((resultado_exame = 'A') <> aprovado)) AS divergentes, "
-                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') "
-                "                 AND aprovado IS NOT NULL) AS comparaveis "
+                f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
+                f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame) AS divergentes, "
+                f"COUNT(*) FILTER (WHERE {_COMPARAVEL_RESOLVIDO_SQL}) AS comparaveis, "
+                f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) AS pendentes_comite "
                 "FROM exams "
+                f"{_comite_join('exams')} "
                 "WHERE gs_video LIKE 'gs://%' "
-                f"AND created_at >= CURRENT_DATE - INTERVAL '{janela} days' "
-                "GROUP BY 1, date_trunc('day', created_at) "
-                "ORDER BY date_trunc('day', created_at)"
+                f"AND exams.created_at >= CURRENT_DATE - INTERVAL '{janela} days' "
+                "GROUP BY 1, date_trunc('day', exams.created_at) "
+                "ORDER BY date_trunc('day', exams.created_at)"
             ).fetchall()
             out["items"] = [
                 {
@@ -4117,6 +4246,7 @@ def dashboard_diario(
                     "auditados": int(r[3] or 0),
                     "divergentes": int(r[4] or 0),
                     "comparaveis": int(r[5] or 0),
+                    "pendentes_comite": int(r[6] or 0),
                 }
                 for r in rows
             ]
