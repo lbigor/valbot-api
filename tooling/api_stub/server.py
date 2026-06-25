@@ -6232,11 +6232,21 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         _resultado_calc_derivado = "A"
     elif _aprov is False:
         _resultado_calc_derivado = "R"
-    resultado_oficial = (
-        os_.get("resultado_oficial")
-        or divergencia.get("resultado_oficial")
-        or e.get("resultado_exame")
-    )
+    # FONTE CANÔNICA do resultado OFICIAL = exams.resultado_exame (veredito
+    # presencial do examinador, A/R/N). Tem PRECEDÊNCIA sobre os_/divergencia:
+    # quando 'R'/'A' ele é a verdade do lançamento humano e os campos derivados
+    # da OS/motor (resultado_oficial) podem estar inconsistentes/defasados
+    # (ex.: 'A' enquanto o examinador reprovou → consenso falso). os_/divergencia
+    # só entram como FALLBACK quando resultado_exame é nulo ou 'N' (pendente).
+    _re_oficial = (e.get("resultado_exame") or "").strip().upper()
+    if _re_oficial in ("A", "R"):
+        resultado_oficial = e.get("resultado_exame")
+    else:
+        resultado_oficial = (
+            os_.get("resultado_oficial")
+            or divergencia.get("resultado_oficial")
+            or e.get("resultado_exame")
+        )
     resultado_calculado = (
         os_.get("resultado_calculado")
         or divergencia.get("resultado_calculado")
