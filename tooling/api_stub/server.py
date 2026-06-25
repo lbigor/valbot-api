@@ -4650,6 +4650,169 @@ def _norm_gravidade(g) -> str:
     return _GRAV_CANON.get(s, "leve")
 
 
+# --- Enriquecimento conservador (laudo-json) ------------------------------------
+# Campos DERIVADOS dos dados crus. Acrescentam, nunca substituem. Toda função
+# devolve None quando o dado de origem não existe → o spread no chamador omite/
+# nula o campo, sem inventar valor.
+
+# Mapeamento canônico quadrante (layout VIP/VLM) ⇄ câmera. Espelha o layout
+# usado no pipeline (_mock_analyze_result: TL=frontal, TR=lateral_direita,
+# BL=interna, BR=traseira_esq).
+_QUADRANTE_CAMERA = {
+    "TL": "frontal",
+    "TR": "lateral_direita",
+    "BL": "interna",
+    "BR": "traseira_esq",
+}
+_CAMERA_QUADRANTE = {v: k for k, v in _QUADRANTE_CAMERA.items()}
+
+# Rótulos legíveis por câmera canônica.
+_CAMERA_LABEL = {
+    "frontal": "Frontal",
+    "lateral_direita": "Lateral Direita",
+    "lateral_esquerda": "Lateral Esquerda",
+    "interna": "Interna",
+    "traseira_esq": "Traseira Esquerda",
+    "traseira": "Traseira",
+}
+
+
+def _fmt_mmss(seconds) -> str | None:
+    """Segundos → "mm:ss" (ou "hh:mm:ss" se >= 1h). None se entrada inválida."""
+    try:
+        s = int(float(seconds))
+    except (TypeError, ValueError):
+        return None
+    if s < 0:
+        return None
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h:d}:{m:02d}:{sec:02d}"
+    return f"{m:02d}:{sec:02d}"
+
+
+def _conf_pct(raw) -> int | None:
+    """Confiança crua → inteiro 0–100. Aceita fração (0–1) ou já-percentual
+    (1–100). None se ausente/inválida."""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if v <= 1.0:
+        v *= 100.0
+    return max(0, min(100, int(round(v))))
+
+
+def _norm_camera_label(raw) -> str | None:
+    """Normaliza um identificador de câmera (snake/quadrante/livre) para a chave
+    canônica. None se vazio."""
+    s = str(raw or "").strip().lower().replace(" ", "_")
+    if not s:
+        return None
+    if s.upper() in _QUADRANTE_CAMERA:  # veio quadrante (TL/TR/BL/BR)
+        return _QUADRANTE_CAMERA[s.upper()]
+    return s
+
+
+def _camera_label_legivel(canon: str | None) -> str | None:
+    """Chave canônica de câmera → rótulo legível. Fallback: Title-case do snake."""
+    if not canon:
+        return None
+    return _CAMERA_LABEL.get(canon, str(canon).replace("_", " ").title())
+
+
+def _enriquecer_infracao(inf: dict, duration_s: float) -> dict:
+    """Acrescenta campos derivados a um item de infração (bloco 7), preservando
+    todo o conteúdo existente via spread. Campo sem origem → omitido."""
+    extra: dict = {}
+    # tempo absoluto em segundos (a partir do timestamp_inicio "mm:ss" já montado)
+    t_ini = inf.get("timestamp_inicio")
+    if isinstance(t_ini, str) and ":" in t_ini:
+        try:
+            parts = [int(p) for p in t_ini.split(":")]
+            seg = parts[-1] + parts[-2] * 60 + (parts[-3] * 3600 if len(parts) == 3 else 0)
+            extra["timestamp_inicio_seg"] = seg
+            if duration_s and duration_s > 0:
+                extra["posicao_pct"] = max(0, min(100, round(seg / duration_s * 100, 1)))
+        except (ValueError, IndexError):
+            pass
+    # confiança normalizada em %
+    pct = _conf_pct(inf.get("confianca_raw", inf.get("_confianca_raw")))
+    if pct is not None:
+        extra["confianca_pct"] = pct
+    # câmeras normalizadas + câmera principal + ângulo/quadrante
+    cams = inf.get("cameras")
+    if isinstance(cams, list) and cams:
+        cams_norm = [c for c in (_norm_camera_label(x) for x in cams) if c]
+        if cams_norm:
+            extra["cameras_norm"] = cams_norm
+            principal = cams_norm[0]
+            extra["camera_principal"] = principal
+            extra["camera_origem"] = principal
+            extra["angulo_camera"] = _camera_label_legivel(principal)
+            quad = _CAMERA_QUADRANTE.get(principal)
+            if quad:
+                extra["quadrante_origem"] = quad
+    # Conservador: só acrescenta o que ainda não existe (nunca sobrescreve).
+    return {**{k: v for k, v in extra.items() if k not in inf}, **inf}
+
+
+def _enriquecer_evento(ev: dict, duration_s: float) -> dict:
+    """Acrescenta campos derivados a um evento bruto (bloco 12b_linha_tempo /
+    exam_eventos), preservando o registro cru via spread. Origem ausente → omite.
+
+    Crus em exam_eventos: timestamp_video_seg, timestamp_audio_seg, duracao_seg,
+    confianca, camera_origem, quadrante_origem, canal_evidencia, etc.
+    """
+    if not isinstance(ev, dict):
+        return ev
+    extra: dict = {}
+    ts = ev.get("timestamp_video_seg")
+    if ts is None:
+        ts = ev.get("timestamp_audio_seg")
+    fmt = _fmt_mmss(ts)
+    if fmt is not None:
+        extra["timestamp_fmt"] = fmt
+        try:
+            seg = int(float(ts))
+            extra["timestamp_seg"] = seg
+            fim = seg
+            dur = ev.get("duracao_seg")
+            if dur is not None:
+                try:
+                    fim = seg + int(float(dur))
+                except (TypeError, ValueError):
+                    fim = seg
+            if fim != seg:
+                extra["timestamp_fim_fmt"] = _fmt_mmss(fim)
+            if duration_s and duration_s > 0:
+                extra["posicao_pct"] = max(0, min(100, round(seg / duration_s * 100, 1)))
+        except (TypeError, ValueError):
+            pass
+    dur_fmt = _fmt_mmss(ev.get("duracao_seg"))
+    if dur_fmt is not None:
+        extra["duracao_fmt"] = dur_fmt
+    pct = _conf_pct(ev.get("confianca"))
+    if pct is not None:
+        extra["confianca_pct"] = pct
+    # câmera / ângulo / quadrante — preenche o que faltar a partir do que existe.
+    cam = _norm_camera_label(ev.get("camera_origem")) or _norm_camera_label(
+        ev.get("quadrante_origem")
+    )
+    if cam:
+        extra["camera_norm"] = cam
+        extra["angulo_camera"] = _camera_label_legivel(cam)
+        if not ev.get("quadrante_origem") and _CAMERA_QUADRANTE.get(cam):
+            extra["quadrante_origem"] = _CAMERA_QUADRANTE[cam]
+    # Conservador: o registro cru tem precedência; só acrescenta o que falta
+    # (exceto quadrante_origem nulo, que aceitamos preencher por inferência).
+    merged = {**extra, **ev}
+    if "quadrante_origem" in extra and not ev.get("quadrante_origem"):
+        merged["quadrante_origem"] = extra["quadrante_origem"]
+    return merged
+
+
 def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
     """Constrói um item Infracao (shape do frontend) a partir de uma linha de
     exam_infractions (via db.laudo_dossie → bloco 7_analise_detalhada)."""
@@ -4699,10 +4862,12 @@ def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
         if str(rid).startswith("R1020-")
         else "Conduta no ambiente DETRAN"
     )
-    return {
+    base = {
         "id": rid,
         "timestamp_inicio": f"{t_sec // 60:02d}:{t_sec % 60:02d}",
         "timestamp_fim": f"{t_end // 60:02d}:{t_end % 60:02d}",
+        "timestamp_inicio_seg": t_sec,
+        "timestamp_fim_seg": t_end,
         "duracao_seg": t_end - t_sec,
         "duracao_fmt": f"{t_end - t_sec}s",
         "occurrences": 1,
@@ -4710,6 +4875,8 @@ def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
         "gravidade_label": GRAVIDADE_LABEL.get(grav, grav.upper()),
         "pontos": pontos,
         "confianca": confianca,
+        # confiança crua preservada p/ o enriquecedor derivar confianca_pct.
+        "confianca_raw": cf,
         "cameras": cams,
         "cameras_fmt": " + ".join(str(c).replace("_", " ").title() for c in cams),
         "titulo": descricao,
@@ -4721,6 +4888,9 @@ def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
         "origem": "exam_infractions",
         "ator": None,
     }
+    # Acrescenta campos derivados (ângulo de câmera, % de confiança, posição
+    # relativa) sem mexer no que já existe.
+    return _enriquecer_infracao(base, duration_s)
 
 
 def _response_from_db(hash: str):
@@ -6142,9 +6312,11 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         # 11 — DECISÃO SUPERVISOR. veredito_supervisor ACRESCENTADO; decisao
         # preservada.
         "11_decisao_supervisor": {**decisao, "veredito_supervisor": _veredito_supervisor},
-        # 12 — LINHA DO TEMPO: trilha da OS + cronologia de eventos brutos
+        # 12 — LINHA DO TEMPO: trilha da OS + cronologia de eventos brutos.
+        # Cada evento bruto é ENRIQUECIDO (tempo fmt, duração, % confiança,
+        # ângulo de câmera) preservando o registro cru via spread.
         "12_eventos_os": eventos,
-        "12b_linha_tempo": eventos_brutos,
+        "12b_linha_tempo": [_enriquecer_evento(ev, _dur_infr) for ev in eventos_brutos],
         "13_envio_unidade_gestora": {
             "laudo_enviado_em": e.get("laudo_enviado_em"),
             "laudo_envio_status": e.get("laudo_envio_status"),
