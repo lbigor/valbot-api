@@ -2593,10 +2593,14 @@ def get_exam_waveform(hash: str, buckets: int = 400):
 
 
 def _enqueue_reanalysis(
-    analysis_id: str, background: BackgroundTasks, force_v26: bool = False
+    analysis_id: str, background: BackgroundTasks, force_v26: bool = False, *, manual: bool = True
 ) -> dict:
     """Resolve o vídeo de um exame e enfileira a (re)análise. Reusado pelo
-    endpoint individual (/reanalyze) e pelo lote (/process-pending).
+    endpoint individual (/reanalyze) e pelo lote (/process-pending) — AMBOS
+    disparados por humano (sessão logada). Por isso `manual=True` por default:
+    o reprocessamento humano IGNORA o gate de resultado oficial (a IA roda
+    mesmo com oficial pendente, por decisão explícita do operador). O bloqueio
+    de oficial pendente vale só pro disparo AUTOMÁTICO (vide _run_analysis).
 
     Aceita uploads do fluxo legado (vídeo em disco local) e do fluxo signed
     URL (vídeo em `gs://...`). Procura primeiro o `gs_path`; se não existir,
@@ -2634,7 +2638,9 @@ def _enqueue_reanalysis(
         video_ref = str(video_path)
 
     _write_status(out_dir, "queued")
-    background.add_task(_run_analysis, analysis_id, video_ref, upload_meta, force_v26)
+    background.add_task(
+        _run_analysis, analysis_id, video_ref, upload_meta, force_v26, manual=manual
+    )
     return {"analysis_id": analysis_id, "status": "queued", "video_ref": video_ref}
 
 
@@ -2917,8 +2923,53 @@ def _read_status(out_dir: Path) -> str:
         return "unknown"
 
 
+def _oficial_pendente(analysis_id: str, upload_meta: dict) -> bool:
+    """Regra de negócio (Igor, dura): o ② Auditor Val (IA) só pode analisar o
+    vídeo DEPOIS que o resultado OFICIAL do ① Examinador (TechPrático) existir.
+
+    Critério canônico — o MESMO que o Kanban usa para "Aguardando resultado
+    oficial": a coluna `resultado_exame` (cofre) só é definitiva quando vale
+    'A' (aprovado) ou 'R' (reprovado). Qualquer outra coisa — 'N' (oficial
+    pendente, como o TechPrático devolve enquanto não há resultado), NULL ou
+    vazio — significa que o oficial AINDA NÃO existe.
+
+    Fonte primária: a tabela `exams` (DB = fonte única de verdade). Fallback:
+    `upload_meta['resultado_exame']` quando o DB está indisponível. Se nem o DB
+    nem o upload_meta carregam um veredito A/R, o oficial é tratado como
+    PENDENTE (fail-closed) — fiel à invariante "sem oficial → não entra na
+    cadeia". Retorna True quando o oficial está pendente/ausente.
+    """
+    of: str | None = None
+    try:
+        from tooling.api_stub import db as _db
+
+        with _db._conn() as _c:  # type: ignore[attr-defined]
+            if _c is not None:
+                _r = _c.execute(
+                    "SELECT resultado_exame FROM exams WHERE hash = %s", (analysis_id,)
+                ).fetchone()
+                if _r is not None:
+                    of = _r[0]
+    except Exception as e:
+        log.warning(
+            "gate oficial: leitura de resultado_exame falhou p/ %s (%s) — usando upload_meta",
+            analysis_id[:12],
+            e,
+        )
+        of = None
+    # Fallback pro upload_meta quando o DB não trouxe valor (off/erro/exame ausente).
+    if of is None:
+        of = upload_meta.get("resultado_exame")
+    return (str(of).strip().upper() if of is not None else "") not in ("A", "R")
+
+
 def _run_analysis(
-    analysis_id: str, video_ref: str, upload_meta: dict, force_v26: bool = False
+    analysis_id: str,
+    video_ref: str,
+    upload_meta: dict,
+    force_v26: bool = False,
+    *,
+    manual: bool = False,
 ) -> None:
     """Worker em background: chama Gemini, salva result.json, gera laudo.pdf,
     atualiza status.json. Idempotente — pode ser chamado novamente.
@@ -2927,11 +2978,41 @@ def _run_analysis(
     ('gs://bucket/path/video.mp4'). Quando vem do fluxo signed URL, é gs://;
     quando vem do `POST /api/exams` legado, é caminho local.
     `analysis_id` é UUID hex (signed URL flow) ou SHA256 (legado).
+
+    `manual=True` libera o reprocessamento DISPARADO POR HUMANO (endpoint
+    /reanalyze, lote, reprocessar_comite). O DISPARO AUTOMÁTICO (manual=False —
+    os 3 gatilhos: worker boot da fila + os 2 dispatch inline de upload) passa
+    pelo GATE de resultado oficial abaixo: sem o veredito do ① Examinador a IA
+    não roda (ver `_oficial_pendente`).
     """
     out_dir = ANALYSES_DIR / analysis_id
     is_gcs = isinstance(video_ref, str) and video_ref.startswith("gs://")
     rubrica_slug = upload_meta.get("exame", {}).get("rubrica", "1020/2025")
     filename_for_record = video_ref.rsplit("/", 1)[-1] if is_gcs else Path(video_ref).name
+
+    # GATE CENTRAL — resultado oficial antes da análise IA (junto ao kill-switch
+    # VALBOT_AUTO_WORKER, mas aqui cobre os 3 gatilhos de uma vez, pois TODOS
+    # passam por _run_analysis). Regra dura: o ② Auditor Val (IA) só analisa
+    # DEPOIS que o resultado OFICIAL do ① Examinador existir. Em disparo
+    # AUTOMÁTICO (manual=False), se o oficial está pendente/ausente NÃO roda a
+    # análise: deixa o exame em "aguardando resultado oficial" e retorna.
+    # Reprocessamento manual (manual=True) ignora o gate de propósito.
+    if not manual and not USE_MOCK_VLM and _oficial_pendente(analysis_id, upload_meta):
+        log.warning(
+            "SKIP_AGUARDANDO_OFICIAL id=%s — resultado oficial do examinador "
+            "pendente/ausente; análise IA NÃO disparada (aguardando oficial). "
+            "Use reprocessamento manual p/ forçar.",
+            analysis_id[:12],
+        )
+        # Mantém o exame elegível: volta pra fila como 'queued' (não 'running'/
+        # 'failed') — assim que o oficial chegar (resultado_exame=A/R) o worker
+        # re-tenta e o gate libera. Idempotente.
+        try:
+            db.update_status(analysis_id, "queued")
+        except Exception:
+            log.exception("SKIP_AGUARDANDO_OFICIAL: update_status falhou p/ %s", analysis_id[:12])
+        _write_status(out_dir, "queued")
+        return
 
     try:
         # Fase A: DB é fonte única de status. status.json continua sendo
