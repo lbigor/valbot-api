@@ -27,6 +27,7 @@ import subprocess
 import threading
 import time
 import traceback
+import unicodedata
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -5822,6 +5823,66 @@ def _enriquecer_evento(ev: dict, duration_s: float) -> dict:
     return merged
 
 
+# --- Rótulos formais do Comitê (laudo OFICIAL — nunca enum cru) --------------
+# Mapa ESPELHO do frontend (valbot-web/src/design/laudoLabels.ts). O laudo é
+# documento OFICIAL do DETRAN: NUNCA pode imprimir a chave técnica de código
+# (`excluida_comite`, `nao_sustenta`, ...). Fonte dos enums:
+#   • status/veredito da infração após o Comitê — exam_infractions.status →
+#     bloco 7 `veredito` (`item.get("status") or "detectado"`);
+#   • veredicto POR infração do Comitê — verificacoes_executadas[].resultado
+#     (sustenta/nao_sustenta/revisar).
+# Único lugar que trava a terminologia: o PDF e o laudo-json compartilham daqui.
+# NÃO altera o valor canônico no DB — só a APRESENTAÇÃO.
+_ROTULO_COMITE_FORMAL: dict[str, str] = {
+    # status/veredito da infração (VEREDITO_INFRACAO no front)
+    "excluida_comite": "Excluída pelo Comitê",
+    "excluida": "Excluída pelo Comitê",
+    "confirmada": "Confirmada pelo Comitê",
+    "confirmado": "Confirmada pelo Comitê",
+    "descartada": "Descartada pelo Comitê",
+    "descartado": "Descartada pelo Comitê",
+    "detectada": "Detecção mantida",
+    "detectado": "Detecção mantida",
+    "mantida": "Detecção mantida",
+    "aprovado": "Detecção mantida",
+    "requer_verificacao_humana": "Requer verificação humana",
+    "pendente_revisao": "Pendente de revisão",
+    "pendente_revisao_humana": "Pendente de revisão humana",
+    # veredicto por infração do Comitê (VEREDICTO_COMITE no front)
+    "sustenta": "Sustenta",
+    "sustentada": "Sustenta",
+    "nao_sustenta": "Não sustenta",
+    "nao_sustentada": "Não sustenta",
+    "revisar": "Revisar",
+}
+
+
+def _humanizar_enum(v) -> str:
+    """Fallback seguro: enum desconhecido NUNCA vaza cru — troca '_' por espaço,
+    colapsa espaços e capitaliza cada palavra ('foo_bar' → 'Foo Bar'). Espelha
+    `humanizarEnum` do frontend. Vazio → '—'."""
+    s = str(v if v is not None else "").strip()
+    if not s:
+        return "—"
+    s = re.sub(r"_+", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return re.sub(r"\b\w", lambda m: m.group(0).upper(), s)
+
+
+def _rotulo_comite_formal(v) -> str:
+    """Rótulo FORMAL do status/veredito de uma infração pelo Comitê (coluna
+    COMITÊ do laudo). Normaliza (NFD, sem acento, minúscula, trim) e casa no
+    mapa-espelho do frontend; chave desconhecida cai em `_humanizar_enum`.
+    Nunca devolve a chave crua. Vazio → '—'."""
+    raw = str(v if v is not None else "").strip()
+    if not raw:
+        return "—"
+    k = unicodedata.normalize("NFD", raw).encode("ascii", "ignore").decode("ascii").strip().lower()
+    if not k:
+        return "—"
+    return _ROTULO_COMITE_FORMAL.get(k, _humanizar_enum(raw))
+
+
 def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
     """Constrói um item Infracao (shape do frontend) a partir de uma linha de
     exam_infractions (via db.laudo_dossie → bloco 7_analise_detalhada)."""
@@ -5893,7 +5954,11 @@ def _infracao_from_db(idx: int, item: dict, duration_s: float) -> dict:
         "descricao_longa": descricao,
         "evidencia": item.get("evidence") or descricao,
         "base_legal": base_legal,
+        # `veredito` = valor canônico do enum (exam_infractions.status, intacto p/
+        # o front mapear). `veredito_label` = rótulo FORMAL compartilhado (laudo
+        # oficial nunca imprime a chave crua); o PDF e o front consomem o mesmo.
         "veredito": item.get("status") or "detectado",
+        "veredito_label": _rotulo_comite_formal(item.get("status") or "detectado"),
         "origem": "exam_infractions",
         "ator": None,
     }
@@ -8242,6 +8307,16 @@ def _laudo_pdf_v2_html(hash: str) -> str:
                 evid = inf.get("evidence") or inf.get("evidencia") or "—"
                 base = inf.get("base_legal") or inf.get("conduta_pontuada") or "—"
                 gcls = _grav_class_v2(sev)
+                # Tratamento pelo Comitê de IA — SEMPRE via rótulo formal; jamais
+                # o enum cru (`excluida_comite`, `nao_sustenta`, ...) no laudo
+                # oficial. Sem campo de status/veredito → "—".
+                _trat_raw = (
+                    inf.get("status")
+                    or inf.get("veredito")
+                    or inf.get("veredicto")
+                    or inf.get("tratamento_comite")
+                )
+                trat = _rotulo_comite_formal(_trat_raw) if _trat_raw else "—"
                 linhas.append(f"""
       <tr>
         <td class="mono">{_esc_v2(tempo)}</td>
@@ -8249,13 +8324,14 @@ def _laudo_pdf_v2_html(hash: str) -> str:
         <td><span class="badge {gcls}">{_esc_v2(sev)}</span></td>
         <td style="text-align:center">{_esc_v2(pts)}</td>
         <td>{_esc_v2(desc)}</td>
+        <td>{_esc_v2(trat)}</td>
         <td class="evid">{_esc_v2(evid)}<br><span class="bl">{_esc_v2(base)}</span></td>
       </tr>""")
             blocos.append(f"""
     <h2>3. Infrações Detectadas pelo ValBot ({len(linhas)})</h2>
     <table class="inf">
       <tr><th>Tempo</th><th>Código (Art./MBEDV)</th><th>Gravidade</th>
-          <th>Pontos</th><th>Descrição</th><th>Evidência / Base legal</th></tr>
+          <th>Pontos</th><th>Descrição</th><th>Comitê de IA</th><th>Evidência / Base legal</th></tr>
       {"".join(linhas)}
     </table>""")
         else:
