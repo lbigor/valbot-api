@@ -214,9 +214,9 @@ def salvar_comite(
             exam_id, comite_versao, tipo_divergencia_analisada,
             tipo_divergencia_pos_comite,
             causas_identificadas, verificacoes_executadas, comentarios_examinador,
-            recomendacao_para_auditor, conclusao_comite, tempo_processamento_seg,
-            cost_usd, raw
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            recomendacao_para_auditor, conclusao_comite, resultado_comite,
+            tempo_processamento_seg, cost_usd, raw
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             exam_id,
@@ -228,6 +228,7 @@ def salvar_comite(
             db.to_jsonb([c.model_dump() for c in laudo.comentarios_examinador_detectados]),
             laudo.recomendacao_para_auditor,
             laudo.conclusao_comite,
+            laudo.resultado_comite,  # veredito explícito ③: 'A' | 'R' | None
             laudo.tempo_processamento_seg,
             cost_usd,
             db.to_jsonb(raw) if raw is not None else None,

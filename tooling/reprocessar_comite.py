@@ -58,6 +58,10 @@ USO
     # 3) inclui também as OS travadas no estágio 'comite' (gera novo laudo):
     python -m tooling.reprocessar_comite --apply --limite 20 --incluir-comite
 
+    # 4) FORÇA re-rodar TODOS os divergentes (mesmo os que já têm laudo) — usado
+    #    para reprocessar os 148 com o prompt novo (veredito A/R do Comitê):
+    python -m tooling.reprocessar_comite --apply --limite 200 --reprocessar-todos
+
 Requer ``DATABASE_URL`` apontando para o Postgres do Valbot (ver memória do
 projeto: container ``valbot-postgres`` na VM ``valbot-prod``). Sem DB, sai no-op.
 """
@@ -88,16 +92,23 @@ log = logging.getLogger("valbot.reprocessar_comite")
 # ---------------------------------------------------------------------------
 
 
-def _selecionar(limite: int, incluir_comite: bool) -> list[dict]:
+def _selecionar(limite: int, incluir_comite: bool, forcar_todos: bool = False) -> list[dict]:
     """Exames divergentes que precisam de (re)disparo do Comitê.
 
     Por padrão: ``divergente AND NOT comite_concluido`` — as divergências que
     foram para 'auditoria' sem passar pelo Comitê. Com ``incluir_comite``,
     também os travados em ``stage = 'comite'`` (já têm laudo; reprocessa).
 
+    Com ``forcar_todos`` (flag ``--reprocessar-todos``/``--forcar``): RE-processa
+    TODOS os divergentes, INCLUSIVE os que JÁ têm laudo de Comitê — necessário
+    para re-rodar os exames com um PROMPT NOVO (ex.: o veredito A/R do Comitê).
+    Gera um NOVO laudo por exame (``exam_comite_laudos`` é append-only).
+
     Mais antigos primeiro (created_at ASC) — a fila mais velha é a mais urgente.
     """
-    if incluir_comite:
+    if forcar_todos:
+        where = "divergente"
+    elif incluir_comite:
         where = "divergente AND (NOT comite_concluido OR stage = 'comite')"
     else:
         where = "divergente AND NOT comite_concluido"
@@ -348,6 +359,18 @@ def main(argv: list[str] | None = None) -> int:
             "laudo) — gera um NOVO laudo. Sem isto, só os divergentes sem Comitê."
         ),
     )
+    parser.add_argument(
+        "--reprocessar-todos",
+        "--forcar",
+        dest="forcar_todos",
+        action="store_true",
+        help=(
+            "FORÇA o reprocessamento de TODOS os exames divergentes, inclusive os "
+            "que JÁ têm laudo de Comitê (ignora 'comite_concluido') — necessário "
+            "para re-rodar os 148 com o prompt NOVO (veredito A/R). Gera um novo "
+            "laudo por exame. Default: NÃO forçar (só pendentes)."
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="loga cada exame em detalhe.")
     args = parser.parse_args(argv)
 
@@ -364,11 +387,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    candidatos = _selecionar(args.limite, args.incluir_comite)
+    candidatos = _selecionar(args.limite, args.incluir_comite, args.forcar_todos)
     modo = "APPLY" if args.apply else "DRY-RUN"
     print(
         f"[reprocessar_comite] modo={modo} limite={args.limite} "
-        f"incluir_comite={args.incluir_comite} -> {len(candidatos)} exame(s).",
+        f"incluir_comite={args.incluir_comite} forcar_todos={args.forcar_todos} "
+        f"-> {len(candidatos)} exame(s).",
         flush=True,
     )
     if not candidatos:

@@ -357,6 +357,12 @@ class LaudoComite(BaseModel):
     # pra fila) ou MANTER a divergência (segue pro Auditor). None = não avaliado;
     # SEM_DIVERGENCIA = resolvida pelo comitê.
     tipo_divergencia_pos_comite: TipoDivergencia | None = None
+    # Veredito EXPLÍCITO do Comitê de IA (③) — regra de negócio (Igor): o Comitê,
+    # como "máquina fria", DEVE cravar APROVADO/REPROVADO baseado só nos pontos do
+    # examinador. 'A' = APROVADO | 'R' = REPROVADO | None = não avaliado. Esse
+    # resultado é comparado ao do examinador ① (exams.resultado_exame) e ao da IA
+    # crua ② (exams.aprovado). Persistido em exam_comite_laudos.resultado_comite.
+    resultado_comite: str | None = None
 
 
 # ---------------------------------------------------------------------------
