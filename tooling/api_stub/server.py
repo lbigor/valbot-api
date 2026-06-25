@@ -5779,6 +5779,15 @@ def relatorios_resultados(
                 "pontuacao_calculada": r.get("pontuacao_total"),
                 "pontuacao_oficial": None,
                 "tipo_divergencia": "resultado" if diverge else None,
+                # Estado do fluxo DERIVADO (informativo). Sem migration: a view
+                # v_exams_overview já expõe resultado_exame/aprovado/gate_rejected/
+                # layout_confianca. NÃO altera status/pipeline.
+                "estado_fluxo": _estado_fluxo(
+                    resultado_oficial=r.get("resultado_exame"),
+                    resultado_calculado=rc,
+                    gate_rejected=r.get("gate_rejected"),
+                    layout_confianca=r.get("layout_confianca"),
+                ),
                 "data_hora_exame": r.get("created_at"),
                 "num_infracoes": r.get("num_infracoes"),
                 "cost_usd": r.get("cost_usd"),
@@ -5834,6 +5843,51 @@ def _res_label(v) -> str | None:
     return None
 
 
+def _estado_fluxo(
+    *,
+    resultado_oficial,
+    resultado_calculado,
+    gate_rejected=None,
+    layout_confianca=None,
+) -> str:
+    """Deriva (NÃO altera) o estado do fluxo do exame a partir de dados que JÁ
+    existem no dossiê. Campo puramente informativo: não muda status real da OS,
+    não encerra, não marca inapto — apenas SINALIZA em que ponto o caso está.
+
+    Precedência (do mais restritivo ao mais brando):
+      1. "inapto_avaliacao"  — visibilidade/qualidade ruim (gate_rejected OU
+         layout_confianca < 0.4). Distinto de "fora_escopo" (categoria não
+         suportada), que NÃO é derivado aqui.
+      2. "aguardando_oficial" — resultado oficial do examinador ainda 'N'/ausente
+         (mesma regra de `resultado_exame` ∈ {A,R}; qualquer outra coisa = pendente).
+      3. "consenso"    — oficial E calculado presentes e CONCORDAM (mesmo veredito
+         A/R). Só SINALIZA que poderia finalizar direto; NÃO encerra.
+      4. "divergencia" — oficial E calculado presentes e DIVERGEM.
+      5. ""            — nenhum dos casos acima.
+    """
+    # 1. Inapto por qualidade/visibilidade (gate ou confiança de layout baixa).
+    conf = None
+    if layout_confianca is not None:
+        try:
+            conf = float(layout_confianca)
+        except (TypeError, ValueError):
+            conf = None
+    if bool(gate_rejected) or (conf is not None and conf < 0.4):
+        return "inapto_avaliacao"
+
+    # 2. Oficial pendente — usa a MESMA regra de oficialReal/resultado_exame:
+    #    só conta como oficial efetivo se normaliza para APROVADO/REPROVADO.
+    oficial = _res_label(resultado_oficial)
+    if oficial is None:
+        return "aguardando_oficial"
+
+    # 3/4. Consenso vs divergência — exige oficial E calculado normalizáveis.
+    calculado = _res_label(resultado_calculado)
+    if calculado is None:
+        return ""
+    return "consenso" if oficial == calculado else "divergencia"
+
+
 def _laudo_blocos_14_2(hash_: str) -> dict:
     """Monta os 14 blocos do §14.2 a partir do dossiê do DB (exam + comitê +
     parecer + decisão + eventos). DB off → placeholder com os 14 blocos vazios.
@@ -5851,6 +5905,8 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "exame_hash": hash_,
             "laudo_versao": "laudo/2.0",
             "fonte": "placeholder",
+            # Sem dossiê não há veredito oficial → fluxo aguardando o oficial.
+            "estado_fluxo": "aguardando_oficial",
             "blocos": {
                 "1_identificacao": {},
                 "2_candidato": {},
@@ -6112,11 +6168,21 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             blocos["6_cobertura"]["checklist_anexo_k"] = _chk
     except Exception:  # noqa: BLE001
         pass
+    # Estado do fluxo DERIVADO (informativo) — não altera pipeline/status/OS.
+    # Reusa o veredito oficial/calculado já resolvido acima (com os mesmos
+    # fallbacks) + sinais de qualidade do bloco 6 (gate_rejected/layout_confianca).
+    estado_fluxo = _estado_fluxo(
+        resultado_oficial=resultado_oficial,
+        resultado_calculado=resultado_calculado,
+        gate_rejected=e.get("gate_rejected"),
+        layout_confianca=e.get("layout_confianca"),
+    )
     laudo = {
         "exame_hash": hash_,
         "laudo_versao": "laudo/2.0",
         "emitido_em": datetime.utcnow().isoformat() + "Z",
         "fonte": "db",
+        "estado_fluxo": estado_fluxo,
         "blocos": blocos,
     }
     # Integridade — hash do conteúdo (reusa o helper do backend.reporting.laudo).
