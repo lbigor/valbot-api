@@ -1164,15 +1164,24 @@ def os_id_por_hash(exam_hash: str, tipo_divergencia: str = "resultado") -> str |
 # Hash sha256 de exame = 64 hex. O frontend manda ora o id REAL da OS (UUID),
 # ora este hash (os_id sintético da fila /api/os). Usado por resolver_os_id.
 _HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+# numero_os materializado = "OS-<hash8>" (ver os_id_por_hash / ensure_os_em_auditoria,
+# que gravam f"OS-{hash[:8].upper()}"). Depois que as OS foram materializadas o
+# frontend (SupervisorWorkspace) passou a mandar este numero_os no lugar do hash cru.
+_NUMERO_OS_RE = re.compile(r"^OS-([0-9a-fA-F]{6,})$")
 
 
 def resolver_os_id(identificador: str | None, tipo_divergencia: str = "resultado") -> str | None:
     """Resolve um identificador vindo do frontend → id REAL da OS (UUID).
 
-    TOLERANTE (o frontend manda os dois formatos, ver SupervisorWorkspace):
+    TOLERANTE (o frontend manda os três formatos, ver SupervisorWorkspace):
       • 64 hex  → é o HASH do exame → os_id_por_hash (GET-OR-CREATE; materializa a
         OS se ainda não existir — resolve de quebra o legado de exames em
         'auditoria' sem ordens_servico).
+      • "OS-<hash8>" (numero_os de uma OS já materializada) → resolve para o UUID
+        real: PRIMEIRO via SELECT por numero_os (a OS existe); se não achar, extrai
+        o sufixo hex, recupera o hash completo do exame (hash LIKE '<sufixo>%') e
+        cai no os_id_por_hash (GET-OR-CREATE). Sem isso o "OS-..." cru ia direto p/
+        uma comparação com coluna UUID → ORA/Postgres "invalid input syntax for uuid".
       • caso contrário → assume ser o UUID de uma OS já existente; devolve como veio
         (a validação real acontece em save_supervisor_decisao, que faz o SELECT por PK).
     None se DB off, hash sem exame, ou identificador vazio.
@@ -1184,6 +1193,35 @@ def resolver_os_id(identificador: str | None, tipo_divergencia: str = "resultado
         return None
     if _HEX64_RE.match(s):
         return os_id_por_hash(s, tipo_divergencia)
+    m = _NUMERO_OS_RE.match(s)
+    if m:
+        sufixo = m.group(1)
+        exam_hash = None
+        try:
+            with _conn() as c:
+                if c is None:
+                    return None
+                # 1) OS já materializada → numero_os guarda o vínculo p/ o UUID real.
+                #    numero_os é gravado com sufixo UPPER (f"OS-{hash[:8].upper()}").
+                row = c.execute(
+                    "SELECT id::text FROM ordens_servico WHERE numero_os = %s",
+                    (f"OS-{sufixo.upper()}",),
+                ).fetchone()
+                if row:
+                    return row[0]
+                # 2) Ainda sem OS → resolve o exame pelo prefixo do hash (sha256
+                #    lowercase) e materializa via GET-OR-CREATE logo abaixo.
+                erow = c.execute(
+                    "SELECT hash FROM exams WHERE hash LIKE %s LIMIT 1",
+                    (sufixo.lower() + "%",),
+                ).fetchone()
+                exam_hash = erow[0] if erow else None
+        except Exception as e:
+            log.warning("db.resolver_os_id falhou id=%s: %s", s, e)
+            return None
+        if exam_hash:
+            return os_id_por_hash(exam_hash, tipo_divergencia)
+        return None
     return s
 
 
