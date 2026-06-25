@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import time
 import uuid
@@ -306,6 +307,177 @@ def _compute_cost_usd(model_name: str, prompt_tokens: int, output_tokens: int) -
     }
 
 
+# ============================================================================
+# Resiliência a erros transitórios do Vertex (429/503/timeout) + 403 acionável
+# ============================================================================
+#
+# Em prod o motor batia em 429 (ResourceExhausted/quota) e 403 (permissão/
+# credencial) sem nenhum tratamento — a chamada `model.generate_content` era
+# nua. Resultado: 135 falhas por 429, 10 por 403, OS travadas em "comite" e
+# divergências em "auditoria" que nunca chegaram ao comitê.
+#
+# A quota em si é INFRA (fora do código) — o que o código pode fazer é:
+#   1. NÃO desistir na primeira recusa transitória — retry com backoff
+#      exponencial + jitter (429/503/timeout costumam ser passageiros).
+#   2. NÃO ficar batendo eternamente num 403 — credencial/permissão errada não
+#      melhora com retry; loga uma mensagem acionável e re-levanta na hora.
+#
+# Tunável por env (defaults conservadores):
+#   VALBOT_VERTEX_MAX_RETRIES  (default 4 → 1 tentativa + 4 retries)
+#   VALBOT_VERTEX_BACKOFF_BASE (default 2.0s — primeira espera; dobra a cada vez)
+#   VALBOT_VERTEX_BACKOFF_CAP  (default 60.0s — teto de uma espera)
+
+VERTEX_MAX_RETRIES = int(os.environ.get("VALBOT_VERTEX_MAX_RETRIES", "4"))
+VERTEX_BACKOFF_BASE = float(os.environ.get("VALBOT_VERTEX_BACKOFF_BASE", "2.0"))
+VERTEX_BACKOFF_CAP = float(os.environ.get("VALBOT_VERTEX_BACKOFF_CAP", "60.0"))
+
+# Nomes de exceção (google.api_core.exceptions / google.genai.errors) tratados
+# como TRANSITÓRIOS — vale a pena reenviar. Casamos por NOME da classe + texto,
+# não por isinstance, pra não acoplar a um SDK específico (o módulo importa sem
+# vertexai instalado, ver docstring do topo).
+_TRANSIENT_EXC_NAMES = frozenset(
+    {
+        "ResourceExhausted",  # 429 — quota / rate limit
+        "TooManyRequests",  # 429 (genai)
+        "ServiceUnavailable",  # 503
+        "DeadlineExceeded",  # timeout server-side
+        "InternalServerError",  # 500 transitório
+        "Aborted",  # 409 concorrência — reenviar
+        "RetryError",  # google retry esgotado internamente
+        "Timeout",
+        "TimeoutError",
+        "ConnectionError",
+    }
+)
+
+# 403 / credencial / permissão — retry NÃO resolve. Re-levanta com log acionável.
+_PERMISSION_EXC_NAMES = frozenset(
+    {
+        "PermissionDenied",  # 403
+        "Forbidden",
+        "Unauthenticated",  # 401
+        "Unauthorized",
+    }
+)
+
+
+def _http_status_of(exc: Exception) -> int | None:
+    """Extrai o status HTTP do erro Vertex/genai, se exposto."""
+    for attr in ("code", "status_code"):
+        val = getattr(exc, attr, None)
+        if isinstance(val, int):
+            return val
+    # google.genai.errors.APIError expõe .code como int; api_core usa .code enum
+    return None
+
+
+def _classify_vertex_error(exc: Exception) -> str:
+    """Classifica um erro do Vertex em 'transient' | 'permission' | 'fatal'.
+
+    Casa por nome de classe (robusto entre SDKs), depois por status HTTP, e por
+    fim pela substring da mensagem — 429/403 às vezes chegam como Exception
+    genérica (ex.: ClientError do google-genai com a msg embutida).
+    """
+    name = type(exc).__name__
+    if name in _PERMISSION_EXC_NAMES:
+        return "permission"
+    if name in _TRANSIENT_EXC_NAMES:
+        return "transient"
+
+    status = _http_status_of(exc)
+    if status in (401, 403):
+        return "permission"
+    if status in (408, 409, 429, 500, 503, 504):
+        return "transient"
+
+    msg = str(exc).lower()
+    if any(k in msg for k in ("permission", "forbidden", "unauthor", "credential", "403", "401")):
+        return "permission"
+    if any(
+        k in msg
+        for k in (
+            "resource exhausted",
+            "resourceexhausted",
+            "quota",
+            "rate limit",
+            "rate-limit",
+            "ratelimit",
+            "too many requests",
+            "429",
+            "503",
+            "unavailable",
+            "deadline",
+            "timeout",
+            "timed out",
+        )
+    ):
+        return "transient"
+    return "fatal"
+
+
+def _vertex_call_with_retry(fn, *, what: str):
+    """Executa `fn()` (uma chamada ao Vertex) com retry + backoff exponencial.
+
+    - Erros TRANSITÓRIOS (429/503/timeout): espera `base * 2**n` + jitter e
+      reenvia, até `VERTEX_MAX_RETRIES` vezes. Não muda o contrato de saída —
+      em caso de sucesso devolve o que `fn` devolveria; esgotadas as tentativas,
+      re-levanta o último erro (mesmo comportamento de antes, só que depois de
+      tentar de verdade).
+    - Erros de PERMISSÃO (403/401): loga mensagem ACIONÁVEL e re-levanta na
+      hora — retry não conserta credencial/escopo/projeto errado.
+    - Demais erros: re-levanta imediatamente (sem retry), preservando o
+      comportamento original.
+
+    `what` é um rótulo curto pro log (ex.: "analyze_video", "gate_categoria_b").
+    """
+    last_exc: Exception | None = None
+    for attempt in range(VERTEX_MAX_RETRIES + 1):
+        try:
+            return fn()
+        except Exception as exc:  # classificamos e re-levantamos abaixo
+            kind = _classify_vertex_error(exc)
+            if kind == "permission":
+                log.error(
+                    "Vertex %s: PERMISSÃO NEGADA (403/401) — retry NÃO resolve. "
+                    "Verifique: (1) a service account tem roles/aiplatform.user; "
+                    "(2) VERTEX_PROJECT=%s está correto e tem a Vertex AI API "
+                    "habilitada + billing ativo; (3) o token/credencial (ADC) não "
+                    "expirou. Erro: %s",
+                    what,
+                    PROJECT_ID,
+                    exc,
+                )
+                raise
+            if kind != "transient" or attempt >= VERTEX_MAX_RETRIES:
+                if kind == "transient":
+                    log.error(
+                        "Vertex %s: erro transitório PERSISTIU após %d tentativas "
+                        "(quota/limite do Vertex — INFRA). Reprocessar quando a "
+                        "quota voltar. Último erro: %s",
+                        what,
+                        VERTEX_MAX_RETRIES + 1,
+                        exc,
+                    )
+                raise
+            last_exc = exc
+            wait = min(VERTEX_BACKOFF_CAP, VERTEX_BACKOFF_BASE * (2**attempt))
+            wait += random.uniform(0, wait * 0.25)  # noqa: S311 — jitter de backoff, não cripto
+            log.warning(
+                "Vertex %s: erro transitório (tentativa %d/%d) — aguardando %.1fs "
+                "e reenviando. Erro: %s",
+                what,
+                attempt + 1,
+                VERTEX_MAX_RETRIES + 1,
+                wait,
+                exc,
+            )
+            time.sleep(wait)
+    # Inalcançável (o loop sempre retorna ou re-levanta), mas mantém o type checker feliz.
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"Vertex {what}: retry loop terminou sem resultado")
+
+
 def gate_categoria_b(
     gs_uri: str,
     *,
@@ -385,19 +557,24 @@ def gate_categoria_b(
             },
             required=["is_cat_b", "confianca", "motivo"],
         )
-        resp = client.models.generate_content(
-            model=model_name,
-            contents=[*parts, prompt],
-            # Flash liga "thinking" por padrão (consome tokens de saída antes do
-            # JSON). Este SDK (1.2.0) não deixa desligar via ThinkingConfig, então
-            # damos folga no orçamento de saída pra caber thinking + JSON. Saída do
-            # Flash é barata (~US$0,60/1M), o custo total segue ~US$0,001.
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-                temperature=0.0,
-                max_output_tokens=2048,
+        # Flash liga "thinking" por padrão (consome tokens de saída antes do
+        # JSON). Este SDK (1.2.0) não deixa desligar via ThinkingConfig, então
+        # damos folga no orçamento de saída pra caber thinking + JSON. Saída do
+        # Flash é barata (~US$0,60/1M), o custo total segue ~US$0,001.
+        # Retry transitório aqui também: o gate é fail-open, mas reenviar num
+        # 429 passageiro evita marcar cat-B só por causa de quota momentânea.
+        resp = _vertex_call_with_retry(
+            lambda: client.models.generate_content(
+                model=model_name,
+                contents=[*parts, prompt],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    temperature=0.0,
+                    max_output_tokens=2048,
+                ),
             ),
+            what="gate_categoria_b",
         )
         txt = (getattr(resp, "text", None) or "").strip()
         m = _re.search(r"\{.*\}", txt, _re.S)
@@ -1080,9 +1257,17 @@ def analyze_video(
             gen_config = GenerationConfig(**gen_config_kwargs)
         else:
             raise
-    response = model.generate_content(
-        [video_part, user_prompt],
-        generation_config=gen_config,
+    # Resiliência: 429 (quota), 503 e timeout do Vertex são transitórios — retry
+    # com backoff exponencial + jitter (ver _vertex_call_with_retry). 403/401
+    # (credencial/permissão) re-levanta na hora com log acionável. O contrato de
+    # saída não muda: sucesso devolve o mesmo `response`; falha definitiva
+    # propaga a exceção (igual antes, só que após tentar de verdade).
+    response = _vertex_call_with_retry(
+        lambda: model.generate_content(
+            [video_part, user_prompt],
+            generation_config=gen_config,
+        ),
+        what="analyze_video",
     )
 
     raw_text = response.text  # type: ignore[attr-defined]
