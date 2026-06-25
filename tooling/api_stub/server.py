@@ -6575,6 +6575,138 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("laudo v2 bloco comparativo falhou %s: %s", hash[:12], e)
 
+    # ===== cadeia de decisão — os 5 pareceres ===============================
+    # Reúne num só lugar, na ordem da escalação, os CINCO contextos de veredito do
+    # exame: ① Examinador, ② Auditor Val (IA), ③ Comitê de IA, ④ Auditor (humano),
+    # ⑤ Supervisor (decisão final). Comitê/Parecer/Decisão só existem no DB, por
+    # isso reusamos _laudo_blocos_14_2 (mesma fonte do /laudo-json → web e PDF
+    # ficam coerentes; resiliente: DB off → blocos vazios → pareceres "pendentes").
+    try:
+        _b14 = {}
+        try:
+            _b14 = (_laudo_blocos_14_2(hash) or {}).get("blocos") or {}
+        except Exception:  # noqa: BLE001
+            _b14 = {}
+
+        def _blk(nome: str) -> dict:
+            d = _b14.get(nome)
+            return d if isinstance(d, dict) else {}
+
+        def _first(d: dict, *keys):
+            for k in keys:
+                v = d.get(k)
+                if v not in (None, ""):
+                    return v
+            return ""
+
+        def _ar(v) -> tuple[str, str]:
+            """(rótulo oficial, classe css) — terminologia travada APROVADO/REPROVADO."""
+            s = str(v).strip().upper()
+            if v is True or s.startswith("APRO") or s in ("A", "APTO"):
+                return "APROVADO", "ap"
+            if v is False or s.startswith("REPRO") or s in ("R", "INAPTO"):
+                return "REPROVADO", "rp"
+            return "—", "pend"
+
+        def _tem(d: dict) -> bool:
+            return any(v not in (None, "", []) for v in d.values())
+
+        # ① Examinador
+        _o = _blk("4_resultado_oficial")
+        _ex_lbl, _ex_cls = _ar(_first(_o, "resultado_oficial", "resultado_exame"))
+        _ex_resp = _first(_blk("3_examinador"), "nome") or "Examinador"
+        _ex_pont = _first(_o, "pontuacao_oficial")
+        _ex_sint = (
+            f"Pontuação oficial: {_ex_pont}"
+            if str(_ex_pont)
+            else "Decisão presencial (TechPrático)"
+        )
+
+        # ② Auditor Val (IA)
+        _c = _blk("5_resultado_calculado")
+        _ia_lbl, _ia_cls = _ar(_first(_c, "resultado_calculado", "aprovado"))
+        _ia_resp = (
+            _first(_blk("1_identificacao"), "modelo_ia_principal", "engine_backend")
+            or "Motor automático"
+        )
+        _ia_pont = _first(_c, "pontuacao_calculada", "pontuacao_total")
+        _ia_sint = (
+            f"Pontuação calculada: {_ia_pont}" if str(_ia_pont) else "Resultado calculado pela IA"
+        )
+
+        # ③ Comitê de IA (recomendação, não veredito final)
+        _cm = _blk("9_comite_ia")
+        _cm_concl = str(_first(_cm, "conclusao_comite", "conclusao"))
+        _cm_map = {
+            "concorda_com_examinador": "Concorda com o examinador",
+            "manter_divergencia_com_fundamentacao": "Mantém divergência (fundamentada)",
+        }
+        _cm_lbl = _cm_map.get(_cm_concl, _cm_concl)
+        _cm_rec = str(_first(_cm, "recomendacao_para_auditor", "recomendacao"))
+        if _tem(_cm):
+            _cm_vere, _cm_cls = (_cm_lbl or "—"), ""
+            _cm_sint = _cm_rec or "Refino multi-modelo (recomendação, não veredito final)"
+        else:
+            _cm_vere, _cm_cls = "Não acionado", "pend"
+            _cm_sint = "Sem divergência a refinar."
+
+        # ④ Auditor (humano)
+        _p = _blk("10_parecer_auditor")
+        _pa_fin_lbl, _pa_fin_cls = _ar(_first(_p, "resultado_final"))
+        _pa_dec = str(_first(_p, "decisao"))
+        _pa_dec_lbl = {"concorda": "Concorda com a IA", "discorda": "Diverge da IA"}.get(
+            _pa_dec, _pa_dec
+        )
+        if _tem(_p):
+            _pa_vere, _pa_cls = (
+                (_pa_fin_lbl, _pa_fin_cls) if _pa_fin_lbl != "—" else (_pa_dec_lbl or "—", "")
+            )
+            _pa_resp = str(_first(_p, "auditor")) or "Auditor responsável"
+            _pa_sint = str(_first(_p, "justificativa")) or "Parecer registrado."
+        else:
+            _pa_vere, _pa_cls, _pa_resp = "—", "pend", "Auditor responsável"
+            _pa_sint = "Aguardando parecer do auditor."
+
+        # ⑤ Supervisor (decisão final)
+        _d = _blk("11_decisao_supervisor")
+        _ds_dec = str(_first(_d, "decisao_final", "decisao"))
+        _ds_lbl = {"homologar": "Homologado", "reformar": "Reformado"}.get(_ds_dec, _ds_dec)
+        if _tem(_d):
+            _ds_vere = _ds_lbl or "—"
+            _ds_cls = "ap" if _ds_dec == "homologar" else ("rp" if _ds_dec == "reformar" else "")
+            _ds_resp = str(_first(_d, "supervisor", "decidido_por")) or "Supervisor"
+            _ds_sint = str(_first(_d, "justificativa")) or "Decisão registrada."
+        else:
+            _ds_vere, _ds_cls, _ds_resp = "—", "pend", "Supervisor"
+            _ds_sint = "Aguardando decisão do supervisor."
+
+        _cadeia = [
+            ("①", "Examinador", _ex_lbl, _ex_cls, _ex_resp, _ex_sint),
+            ("②", "Auditor Val (IA)", _ia_lbl, _ia_cls, _ia_resp, _ia_sint),
+            ("③", "Comitê de IA", _cm_vere, _cm_cls, "Refino multi-modelo", _cm_sint),
+            ("④", "Auditor", _pa_vere, _pa_cls, _pa_resp, _pa_sint),
+            ("⑤", "Supervisor", _ds_vere, _ds_cls, _ds_resp, _ds_sint),
+        ]
+        _rows = "".join(
+            f'<tr><td style="text-align:center">{_n}</td>'
+            f"<td>{_esc_v2(_rot)}</td>"
+            f'<td class="cad-v {_cls}">{_esc_v2(_vere)}</td>'
+            f"<td>{_esc_v2(_resp)}</td><td>{_esc_v2(_sint)}</td></tr>"
+            for (_n, _rot, _vere, _cls, _resp, _sint) in _cadeia
+        )
+        blocos.append(f"""
+    <h2>Cadeia de Decisão — 5 Pareceres</h2>
+    <p class="note">Os cinco contextos de veredito sobre este exame, na ordem da escalação — do
+    examinador presencial à decisão final do supervisor. Cada parecer é registrado de forma
+    independente e preservado para auditoria.</p>
+    <table class="cad">
+      <tr><th style="width:5%">#</th><th style="width:19%">Parecer</th><th style="width:17%">Veredito</th>
+          <th style="width:22%">Responsável / Fonte</th><th>Síntese</th></tr>
+      {_rows}
+    </table>""")
+    except Exception as e:  # noqa: BLE001
+        log.warning("laudo v2 bloco cadeia 5 pareceres falhou %s: %s", hash[:12], e)
+
     # ===== infrações detectadas pelo ValBot (Gemini) ========================
     try:
         infl = (
@@ -6709,6 +6841,11 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     td.big.ok {{ color:#0b7a44; }} td.big.div {{ color:#b42318; }}
     table.inf th {{ background:#f1f6f3; font-size:9.5px; }}
     table.inf td {{ font-size:9.5px; }}
+    table.cad th {{ background:#f1f6f3; font-size:9.5px; color:#33403a; }}
+    table.cad td {{ font-size:9.5px; }}
+    td.cad-v {{ font-weight:700; }}
+    td.cad-v.ap {{ color:#0b7a44; }} td.cad-v.rp {{ color:#b42318; }}
+    td.cad-v.pend {{ color:#999; font-weight:400; font-style:italic; }}
     .evid {{ font-size:9px; color:#3a4540; }} .bl {{ color:#7a857f; font-style:italic; }}
     .mono {{ font-family:'Courier New',monospace; font-size:9px; }}
     .badge {{ display:inline-block; padding:1px 6px; border-radius:3px; font-size:8.5px; font-weight:700; color:#fff; }}
