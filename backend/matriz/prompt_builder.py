@@ -51,7 +51,16 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "breve (1–2 s) pode não aparecer entre os quadros — ver o veículo em "
         "movimento logo antes e logo depois NÃO prova que não houve parada. Na "
         "dúvida sobre a imobilização total, NÃO pontue (benefício da dúvida ao "
-        "candidato)."
+        "candidato). "
+        "ESTRATÉGIA DO FRAME CONGELADO: antes de pontuar, PROCURE nas câmeras "
+        "EXTERNAS (FRONTAL e LATERAL_DIREITA, visão de fora do veículo) um quadro "
+        "em que o veículo esteja CLARAMENTE IMÓVEL após cruzar a placa de parada "
+        "obrigatória (R-1) / a faixa de retenção; priorize essas câmeras externas "
+        "sobre a INTERNA, que mostra o candidato e não a posição do veículo na via. "
+        "Se encontrar QUALQUER frame de imobilidade real (mesmo breve), NÃO pontue — "
+        "a amostragem ~1 fps pode simplesmente não ter capturado o instante da "
+        "parada. Só pontue se NENHUMA câmera externa mostrar imobilidade e houver "
+        "evidência inequívoca de passagem contínua."
     ),
 }
 
