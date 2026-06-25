@@ -321,6 +321,9 @@ def discover_layout(
     Roda até `max_tentativas` vezes e devolve o primeiro resultado `confiavel`
     (ou o de maior confiança se nenhum passar). Custo por tentativa ~$0.01.
     """
+    import random
+    import time as _time
+
     melhor: CameraMap | None = None
     for tentativa in range(1, max_tentativas + 1):
         cm = _discover_layout_once(
@@ -345,7 +348,46 @@ def discover_layout(
             cm.confianca_layout,
             "tentando de novo" if tentativa < max_tentativas else "esgotado",
         )
+        # Quando a falha foi um erro transitório do Vertex (429/503/timeout),
+        # martelar de novo na hora só queima quota. Espera com backoff +
+        # jitter antes da próxima tentativa. _discover_layout_once é fail-soft
+        # (devolve CameraMap com raw_response="<exception> ..."), então
+        # detectamos o transitório pela marca + mensagem.
+        if tentativa < max_tentativas and _raw_parece_transitorio(cm.raw_response):
+            wait = min(30.0, 2.0 * (2 ** (tentativa - 1)))
+            wait += random.uniform(0, wait * 0.25)  # noqa: S311 — jitter de backoff, não cripto
+            log.warning(
+                "layout_discovery: erro transitório do Vertex — aguardando %.1fs antes de reenviar",
+                wait,
+            )
+            _time.sleep(wait)
     return melhor if melhor is not None else CameraMap()
+
+
+def _raw_parece_transitorio(raw_response: str | None) -> bool:
+    """Heurística: o raw_response de uma tentativa fail-soft parece um erro
+    transitório do Vertex (429/quota/503/timeout)? Usado só pra decidir backoff
+    entre tentativas — nunca altera o resultado."""
+    if not raw_response or "<exception>" not in raw_response:
+        return False
+    msg = raw_response.lower()
+    return any(
+        k in msg
+        for k in (
+            "resource exhausted",
+            "resourceexhausted",
+            "quota",
+            "rate limit",
+            "ratelimit",
+            "too many requests",
+            "429",
+            "503",
+            "unavailable",
+            "deadline",
+            "timeout",
+            "timed out",
+        )
+    )
 
 
 def _discover_layout_once(
