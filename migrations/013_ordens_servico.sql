@@ -49,8 +49,9 @@ CREATE TABLE IF NOT EXISTS supervisor_decisoes (
     id                BIGSERIAL PRIMARY KEY,
     os_id             UUID NOT NULL REFERENCES ordens_servico(id) ON DELETE CASCADE,
     supervisor_email  VARCHAR(200) NOT NULL,
-    decisao_final     VARCHAR(30) NOT NULL,
+    decisao_final     VARCHAR(30) NOT NULL,           -- homologar | reformar
     concorda_auditor  BOOLEAN NOT NULL,
+    resultado_final   VARCHAR(16),                    -- APROVADO | REPROVADO (veredito publicado; ver 036)
     justificativa     TEXT NOT NULL,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

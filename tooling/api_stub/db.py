@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import contextmanager
 from datetime import UTC
 from typing import Any
@@ -103,6 +104,11 @@ SELECT
     WHEN base.oficial_pendente                                               THEN 'aguardando'
     WHEN lower(coalesce(base.status, '')) IN ('queued','pending','novo','uploaded','recebido') THEN 'aguardando'
     WHEN lower(coalesce(base.status, '')) IN ('running','processing','analisando')             THEN 'processando'
+    -- ── Desfecho do Supervisor: OS encerrada (decisão final) ⇒ CONCLUÍDO ──────
+    -- A decisão do supervisor (save_supervisor_decisao) seta ordens_servico
+    -- .encerrada_em; o exame sai da auditoria e vira 'concluido', INDEPENDENTE da
+    -- divergência. Tem precedência sobre comitê/auditoria (a cadeia já terminou).
+    WHEN base.os_encerrada_em IS NOT NULL                                     THEN 'concluido'
     WHEN base.divergente AND NOT base.comite_concluido                       THEN 'comite'
     WHEN base.divergente AND base.comite_concluido                           THEN 'auditoria'
     ELSE 'concluido'
@@ -184,9 +190,16 @@ FROM (
            THEN (coalesce(e.layout_confianca, cv.confianca) >= 0.7)
       ELSE NULL
     END                                                        AS video_ok,
-    (jsonb_array_length(coalesce(e.training_annotations, '[]'::jsonb)) > 0) AS tem_anotacoes
+    (jsonb_array_length(coalesce(e.training_annotations, '[]'::jsonb)) > 0) AS tem_anotacoes,
+
+    -- ── Desfecho da OS (decisão do supervisor) — fonte do stage 'concluido' ────
+    -- 1 OS por exame (UNIQUE exam_id), então o LEFT JOIN é 1:1. encerrada_em é
+    -- setado por save_supervisor_decisao ao homologar/reformar a decisão final.
+    os_ord.status        AS os_status,
+    os_ord.encerrada_em  AS os_encerrada_em
   FROM exams e
   LEFT JOIN exam_camera_validations cv ON cv.exam_id = e.id
+  LEFT JOIN ordens_servico os_ord ON os_ord.exam_id = e.id
 ) base;
 """
 
@@ -230,6 +243,25 @@ _SCHEMA_OBJECTS = (
     ("v_exams_metrics", _SQL_V_EXAMS_METRICS),
 )
 
+# Migrações LEVES de coluna garantidas no boot (mesmo gancho das views).
+# Motivo: o CD de prod NÃO roda migrations (migrate.sh não roda no deploy) — só o
+# ensure_schema_objects() converge o schema a cada boot. Colunas novas que o código
+# passou a LER/GRAVAR e que não existem na CREATE TABLE base (013) precisam entrar
+# aqui, senão o primeiro INSERT estoura em prod. Estritamente `ADD COLUMN IF NOT
+# EXISTS` (idempotente + best-effort; no-op quando a coluna já existe via migration).
+#   - supervisor_decisoes.resultado_final (036) — veredito final publicado no laudo.
+#   - supervisor_decisoes.homologar_conduta (024) — gravada no mesmo INSERT.
+_SCHEMA_COLUMNS = (
+    (
+        "supervisor_decisoes.resultado_final",
+        "ALTER TABLE supervisor_decisoes ADD COLUMN IF NOT EXISTS resultado_final VARCHAR(16)",
+    ),
+    (
+        "supervisor_decisoes.homologar_conduta",
+        "ALTER TABLE supervisor_decisoes ADD COLUMN IF NOT EXISTS homologar_conduta BOOLEAN NOT NULL DEFAULT FALSE",
+    ),
+)
+
 
 def ensure_schema_objects() -> bool:
     """(Re)cria os objetos derivados de schema (views + log) de forma IDEMPOTENTE.
@@ -261,6 +293,20 @@ def ensure_schema_objects() -> bool:
             if c is None:
                 log.warning("db.ensure_schema_objects: sem conexão — skip")
                 return False
+            # 1) Colunas novas (ADD COLUMN IF NOT EXISTS) ANTES das views — garante
+            # que o schema das tabelas converge no boot mesmo sem migrate.sh no CD.
+            # Cada ALTER é isolado/best-effort (mesma política das views): falha numa
+            # coluna não derruba o boot nem impede as demais.
+            for nome, sql in _SCHEMA_COLUMNS:
+                try:
+                    c.execute(sql)
+                    log.info("db.ensure_schema_objects: coluna %s OK", nome)
+                except Exception as e:
+                    ok = False
+                    log.exception(
+                        "db.ensure_schema_objects: FALHA na coluna %s (boot segue): %s", nome, e
+                    )
+            # 2) Objetos derivados (log + views).
             for nome, sql in _SCHEMA_OBJECTS:
                 try:
                     c.execute(sql)
@@ -1115,6 +1161,70 @@ def os_id_por_hash(exam_hash: str, tipo_divergencia: str = "resultado") -> str |
         return None
 
 
+# Hash sha256 de exame = 64 hex. O frontend manda ora o id REAL da OS (UUID),
+# ora este hash (os_id sintético da fila /api/os). Usado por resolver_os_id.
+_HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def resolver_os_id(identificador: str | None, tipo_divergencia: str = "resultado") -> str | None:
+    """Resolve um identificador vindo do frontend → id REAL da OS (UUID).
+
+    TOLERANTE (o frontend manda os dois formatos, ver SupervisorWorkspace):
+      • 64 hex  → é o HASH do exame → os_id_por_hash (GET-OR-CREATE; materializa a
+        OS se ainda não existir — resolve de quebra o legado de exames em
+        'auditoria' sem ordens_servico).
+      • caso contrário → assume ser o UUID de uma OS já existente; devolve como veio
+        (a validação real acontece em save_supervisor_decisao, que faz o SELECT por PK).
+    None se DB off, hash sem exame, ou identificador vazio.
+    """
+    if _disabled() or not identificador:
+        return None
+    s = str(identificador).strip()
+    if not s:
+        return None
+    if _HEX64_RE.match(s):
+        return os_id_por_hash(s, tipo_divergencia)
+    return s
+
+
+def ensure_os_em_auditoria(hashes: list[str]) -> int:
+    """Materializa (idempotente) uma OS para cada exam_hash dado que ainda não a
+    tenha. UM único INSERT...SELECT ... ON CONFLICT(exam_id) DO NOTHING — barato
+    mesmo com centenas de hashes (uma ida ao banco). Cobre os exames que entraram
+    em 'auditoria' (divergência pós-comitê) ANTES de existir camada de
+    materialização. Espelha exatamente o shape de os_id_por_hash
+    (tipo_divergencia='resultado', status='aguardando_supervisor', numero_os).
+    Retorna o nº de OS criadas (0 se DB off / nada a criar). Nunca lança.
+    """
+    if _disabled():
+        return 0
+    hs = [h for h in (hashes or []) if h]
+    if not hs:
+        return 0
+    try:
+        with _conn() as c:
+            if c is None:
+                return 0
+            cur = c.execute(
+                """
+                INSERT INTO ordens_servico (exam_id, tipo_divergencia, status, numero_os)
+                SELECT e.id, 'resultado', 'aguardando_supervisor',
+                       'OS-' || upper(substr(e.hash, 1, 8))
+                FROM exams e
+                WHERE e.hash = ANY(%s)
+                ON CONFLICT (exam_id) DO NOTHING
+                """,
+                (hs,),
+            )
+            n = cur.rowcount or 0
+            if n:
+                log.info("db.ensure_os_em_auditoria: %d OS materializadas", n)
+            return n
+    except Exception as e:
+        log.warning("db.ensure_os_em_auditoria falhou: %s", e)
+        return 0
+
+
 def save_parecer_auditor(
     os_id: str,
     *,
@@ -1779,6 +1889,26 @@ def laudo_dossie(exam_hash: str) -> dict | None:
             cols = [d.name for d in cur.description]
             out: dict = {"exam": dict(zip(cols, row))}
 
+            # Materializa a OS (idempotente) quando o exame está em 'auditoria'
+            # (divergência pós-comitê) e ainda não tem ordens_servico — cobre o
+            # legado sem materialização, garantindo que o dossiê e a decisão do
+            # supervisor tenham uma OS REAL. Mesma conexão (barato). Best-effort:
+            # falha aqui jamais derruba o dossiê.
+            try:
+                if (out["exam"].get("stage") == "auditoria") and out["exam"].get("id"):
+                    c.execute(
+                        """
+                        INSERT INTO ordens_servico
+                            (exam_id, tipo_divergencia, status, numero_os)
+                        VALUES (%s, 'resultado', 'aguardando_supervisor',
+                                'OS-' || upper(substr(%s, 1, 8)))
+                        ON CONFLICT (exam_id) DO NOTHING
+                        """,
+                        (out["exam"]["id"], exam_hash),
+                    )
+            except Exception as e:
+                log.warning("laudo_dossie ensure_os falhou: %s", e)
+
             # Colunas de `exams` que a view v_exams_overview NÃO expõe mas que o
             # laudo precisa (identificação completa §3, resultado oficial §4,
             # resultado calculado §5, identificação do laudo §1). Best-effort:
@@ -1963,7 +2093,7 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                     srow = c.execute(
                         """
                         SELECT supervisor_email, decisao_final, concorda_auditor,
-                               justificativa, created_at
+                               resultado_final, justificativa, created_at
                         FROM supervisor_decisoes WHERE os_id = %s
                         """,
                         (os_id,),
@@ -1973,6 +2103,9 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                             "supervisor",
                             "decisao",
                             "concorda_auditor",
+                            # Veredito final EXPLÍCITO do supervisor (APROVADO/REPROVADO)
+                            # — fonte do veredito publicado no laudo (precede auditor).
+                            "resultado_final",
                             "justificativa",
                             "created_at",
                         ]
@@ -2614,6 +2747,28 @@ def list_cron_runs(job_id: str | None = None, limit: int = 50) -> list[dict] | N
 # --- 5. Supervisor — decisão final sobre a OS (supervisor_decisoes — 017) ----
 
 
+def _canon_resultado(v) -> str | None:
+    """Normaliza o veredito do supervisor → 'APROVADO' | 'REPROVADO' | None.
+
+    Valores canônicos gravados na coluna supervisor_decisoes.resultado_final
+    (a coluna é VARCHAR(16); 'APROVADO'/'REPROVADO' cabem). Aceita 'A'/'R',
+    'aprovado'/'reprovado' (com/sem caixa/acento) e bool. Desconhecido → None
+    (linha fica com NULL — o laudo cai no fallback de derivação legado).
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return "APROVADO" if v else "REPROVADO"
+    s = str(v).strip().lower()
+    if not s:
+        return None
+    if s == "a" or s.startswith("aprov"):
+        return "APROVADO"
+    if s == "r" or s.startswith("reprov") or s.startswith("repr"):
+        return "REPROVADO"
+    return None
+
+
 def save_supervisor_decisao(
     os_id: str,
     *,
@@ -2658,6 +2813,10 @@ def save_supervisor_decisao(
             ).fetchone()
             tem_parecer = prow is not None
             concorda_auditor = bool(tem_parecer and decisao == "homologar")
+            # Veredito final EXPLÍCITO do supervisor (A/R) → coluna resultado_final
+            # (canônico APROVADO/REPROVADO). É a FONTE do veredito publicado no laudo
+            # — sem isso o laudo derivava por inversão binária do auditor (frágil).
+            resultado_final_canon = _canon_resultado(resultado_final)
             # supervisor_decisoes NÃO tem UNIQUE(os_id) no schema de prod (só PK em
             # id) → ON CONFLICT(os_id) é inválido. Upsert manual: apaga a decisão
             # anterior da OS e insere a nova. justificativa é NOT NULL → ''.
@@ -2666,8 +2825,8 @@ def save_supervisor_decisao(
                 """
                 INSERT INTO supervisor_decisoes
                     (os_id, supervisor_email, decisao_final, concorda_auditor,
-                     justificativa, homologar_conduta)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                     resultado_final, justificativa, homologar_conduta)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id::text, created_at
                 """,
                 (
@@ -2675,6 +2834,7 @@ def save_supervisor_decisao(
                     supervisor,
                     decisao,
                     concorda_auditor,
+                    resultado_final_canon,
                     justificativa or "",
                     bool(homologar_conduta),
                 ),
@@ -2717,7 +2877,7 @@ def save_supervisor_decisao(
                 "os_id": os_id,
                 "supervisor": supervisor,
                 "decisao": decisao,
-                "resultado_final": resultado_final,
+                "resultado_final": resultado_final_canon,
                 "concorda_auditor": concorda_auditor,
                 "homologar_conduta": bool(homologar_conduta),
                 "justificativa": justificativa,
@@ -2727,6 +2887,30 @@ def save_supervisor_decisao(
     except Exception as e:
         log.exception("db.save_supervisor_decisao falhou os=%s: %s", os_id, e)
         return None
+
+
+def os_ja_encerrada(os_id: str) -> bool:
+    """True se a OS já está encerrada (encerrada_em IS NOT NULL).
+
+    Guard do POST /api/os/{id}/decisao: uma OS encerrada teve seu laudo oficial
+    publicado e NÃO pode ser re-encerrada/sobrescrita silenciosamente (sem flag de
+    reabertura). DB off, OS inexistente ou erro → False (não bloqueia o eco-mock /
+    a materialização normal). Nunca lança.
+    """
+    if _disabled() or not os_id:
+        return False
+    try:
+        with _conn() as c:
+            if c is None:
+                return False
+            row = c.execute(
+                "SELECT encerrada_em FROM ordens_servico WHERE id = %s",
+                (os_id,),
+            ).fetchone()
+            return bool(row and row[0] is not None)
+    except Exception as e:
+        log.warning("db.os_ja_encerrada falhou os=%s: %s", os_id, e)
+        return False
 
 
 def get_supervisor_decisao(os_id: str) -> dict | None:
@@ -2740,7 +2924,8 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
             row = c.execute(
                 """
                 SELECT id::text, os_id::text, supervisor_email, decisao_final,
-                       concorda_auditor, homologar_conduta, justificativa, created_at
+                       concorda_auditor, resultado_final, homologar_conduta,
+                       justificativa, created_at
                 FROM supervisor_decisoes WHERE os_id = %s
                 """,
                 (os_id,),
@@ -2753,6 +2938,7 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
                 "supervisor",
                 "decisao",
                 "concorda_auditor",
+                "resultado_final",
                 "homologar_conduta",
                 "justificativa",
                 "created_at",
