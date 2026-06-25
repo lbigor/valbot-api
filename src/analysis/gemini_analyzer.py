@@ -784,6 +784,22 @@ pergunte "Eu defenderia esta detecção em uma sessão de auditoria perante
 a comissão de análise N1 do VALBOT?". Se "talvez não" ou "depende",
 mude status para "nao_detectada" e limpe o evidence.
 
+CASO ESPECIAL — PARADA OBRIGATÓRIA (Art. 208, "parada rolante"):
+Antes de marcar "detectada" para passagem por parada obrigatória, faça a
+verificação de FRAME CONGELADO: vasculhe as câmeras EXTERNAS (frontal e
+lateral_direita — visão de fora do veículo) procurando UM quadro em que o
+veículo esteja CLARAMENTE IMÓVEL após cruzar a placa R-1 / a faixa de
+retenção. Priorize as câmeras externas sobre a interna (que enquadra o
+candidato, não a posição do veículo na via).
+  • Se achar QUALQUER frame de imobilidade real (mesmo breve) → NÃO marque:
+    a amostragem ~1 fps pode ter pulado o instante exato da parada. Ver o
+    carro em movimento logo antes e logo depois NÃO prova que não parou.
+  • Só marque "detectada" se NENHUMA câmera externa mostrar imobilidade E
+    houver evidência inequívoca de passagem contínua sem parar.
+  • Quando marcar, use camera_origem para indicar a câmera externa que
+    sustentou a passagem contínua (campo já existente; opcional, não invente
+    outro).
+
 DEVOLVA SOMENTE O JSON. SEM TEXTO ANTES OU DEPOIS.
 {annotations_section}"""
 
