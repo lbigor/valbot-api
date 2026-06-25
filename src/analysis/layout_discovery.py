@@ -424,7 +424,7 @@ def _discover_layout_once(
         or os.environ.get("GCP_PROJECT")
         or os.environ.get("GOOGLE_CLOUD_PROJECT")
     )
-    loc = location or os.environ.get("VERTEX_LOCATION") or "global"
+    loc = location or os.environ.get("VERTEX_LOCATION") or "us-central1"
     if not project:
         raise RuntimeError("GCP_PROJECT / GOOGLE_CLOUD_PROJECT não setado no env")
 
