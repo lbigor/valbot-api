@@ -860,7 +860,6 @@ def save_parecer_auditor(
     auditor: str | None,
     decisao: str,
     resultado_final: str | None,
-    infracoes: list[dict],
     justificativa: str | None,
     referencia_mbedv: str | None,
 ) -> dict | None:
@@ -890,10 +889,10 @@ def save_parecer_auditor(
             import json as _json
 
             # auditor_pareceres NÃO tem UNIQUE(os_id) nem coluna resultado_final/
-            # infracoes/exam_id no schema de prod. Upsert manual: apaga o parecer
-            # anterior da OS e insere o novo. `justificativa` é NOT NULL → ''.
-            # resultado_final/infracoes ficam preservados no os_eventos.details
-            # (jsonb) e na trilha exam_events.
+            # exam_id no schema de prod. Upsert manual: apaga o parecer anterior
+            # da OS e insere o novo. `justificativa` é NOT NULL → ''.
+            # resultado_final fica preservado no os_eventos.details (jsonb) e na
+            # trilha exam_events. O parecer humano não carrega infrações.
             c.execute("DELETE FROM auditor_pareceres WHERE os_id = %s", (os_id,))
             prow = c.execute(
                 """
@@ -909,7 +908,8 @@ def save_parecer_auditor(
                 "UPDATE ordens_servico SET status = %s, auditor_email = %s, atualizada_em = NOW() WHERE id = %s",
                 ("aguardando_supervisor", auditor, os_id),
             )
-            # Audita em os_eventos (resultado_final + infrações no details jsonb).
+            # Audita em os_eventos (resultado_final no details jsonb). O parecer
+            # humano NÃO carrega lista de infrações — `infracoes` não é gravado.
             c.execute(
                 """
                 INSERT INTO os_eventos (os_id, actor, action, details)
@@ -924,7 +924,6 @@ def save_parecer_auditor(
                             "resultado_final": resultado_final,
                             "de_status": de_status,
                             "para_status": "aguardando_supervisor",
-                            "infracoes": infracoes or [],
                             "referencia_mbedv": referencia_mbedv,
                         }
                     ),
@@ -946,7 +945,6 @@ def save_parecer_auditor(
                 "auditor": auditor,
                 "decisao": decisao,
                 "resultado_final": resultado_final,
-                "infracoes": infracoes or [],
                 "justificativa": justificativa,
                 "referencia_mbedv": referencia_mbedv,
                 "created_at": prow[1],
