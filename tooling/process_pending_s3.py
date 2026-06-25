@@ -231,9 +231,20 @@ def parse_categoria_from_s3_path(s3_path: str) -> str:
 def warm_local_cache_from_gcs(analysis_id: str, gs_uri: str) -> bool:
     """Baixa o blob do GCS pro disco local em `storage/analyses/{id}/video.mp4`.
 
+    DESLIGADO por default (`VALBOT_LOCAL_VIDEO_CACHE` != "1"): o cache local
+    enchia o /mnt/data com vídeo bruto e derrubava o Postgres. A análise lê o
+    vídeo direto do GCS (`Part.from_uri`) e a UI streama do GCS — o disco local
+    é staging desnecessário. Com a flag ligada mantém o comportamento antigo.
+
     Idempotente: se já existe, retorna True sem baixar. Erros não propagam —
     warm é best-effort e a UI ainda funciona via stream do GCS se falhar.
     """
+    if os.getenv("VALBOT_LOCAL_VIDEO_CACHE", "0") != "1":
+        log.info(
+            "[%s] warm SKIP — cache local desligado (VALBOT_LOCAL_VIDEO_CACHE!=1)", analysis_id[:12]
+        )
+        return False
+
     from google.cloud import storage  # type: ignore[import-not-found]
 
     local = ANALYSES_DIR / analysis_id / "video.mp4"
