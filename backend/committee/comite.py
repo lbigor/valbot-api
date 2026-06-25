@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 from backend.core.config import settings
@@ -171,10 +172,66 @@ def _laudo_deterministico(
     )
 
 
+def _tem_art_208(infracoes: list[dict]) -> bool:
+    """True se ALGUMA infração da lista é o Art. 208 (passagem por parada obrigatória
+    / 'parada rolante'). Casa pelo número do artigo CTB presente no id/codigo da
+    infração (ex.: 'Art. 208', 'VAL-CTB-208', '208')."""
+    for it in infracoes:
+        artigo = str(it.get("id") or it.get("codigo") or "")
+        # Borda de palavra para não casar '2208'/'1208' por acidente.
+        if re.search(r"(?<!\d)208(?!\d)", artigo):
+            return True
+    return False
+
+
+# Mitigação do falso positivo do Art. 208 (parada obrigatória / "parada rolante").
+#
+# Contexto: o vídeo é amostrado a ~1 quadro/segundo, então uma parada COMPLETA mas
+# breve (1–2 s) pode não aparecer entre os quadros — ver o veículo em movimento logo
+# antes e logo depois NÃO prova que não houve parada. Historicamente isso gerava
+# Art. 208 GRAVÍSSIMO indevido.
+#
+# Limitação conhecida (validada na investigação): nesta 2ª passada o Comitê é
+# TEXTO-ONLY — chama `model.generate_content([prompt])` sem reanexar o vídeo nem
+# frames. Logo não há como, AQUI, abrir a câmera externa e checar um frame congelado
+# do veículo imóvel. A mitigação possível é instruir o modelo a aplicar o ÔNUS DA
+# PROVA correto ao Art. 208: para SUSTENTAR é preciso evidência INEQUÍVOCA de
+# movimento contínuo cruzando a faixa SEM parar; toda evidência fraca/ambígua de
+# "não-parada" vira benefício da dúvida → "nao_sustenta". (A versão completa, com
+# verificação real de frame congelado na câmera externa, exige passar frames ao
+# Comitê — ver docstring de `revisar` e a estratégia para o prompt oficial.)
+_INSTRUCAO_ART_208 = (
+    "\n[CARVE-OUT ESPECIAL — Art. 208 (PARADA OBRIGATÓRIA / 'parada rolante')]\n"
+    "Esta infração tem ÔNUS DA PROVA INVERTIDO em relação à REGRA DURA acima: ela "
+    "só se SUSTENTA se a evidência mostrar movimento CONTÍNUO E INEQUÍVOCO cruzando "
+    "a faixa de retenção SEM qualquer imobilização. O vídeo é amostrado a ~1 quadro "
+    "por segundo, então uma parada completa mas breve (1–2 s) pode NÃO ter sido "
+    "capturada entre os quadros.\n"
+    "  - Procure na evidência registrada qualquer sinal de IMOBILIDADE real após a "
+    "placa de parada — de preferência na CÂMERA EXTERNA (frontal/lateral, visão de "
+    "fora do veículo): veículo descrito como parado/imóvel, frame congelado, "
+    "velocidade ~0, mesmo que por instante. Priorize a câmera externa sobre a "
+    "interna.\n"
+    "  - Se houver QUALQUER indício razoável de parada real, ou se a evidência de "
+    "NÃO-parada for fraca/ambígua/indireta (ex.: 'estava em movimento antes e "
+    "depois'), conceda o BENEFÍCIO DA DÚVIDA ao candidato: veredicto 'nao_sustenta'.\n"
+    "  - Só conclua 'sustenta' se a evidência for INEQUÍVOCA quanto ao movimento "
+    "contínuo sem parada. Na dúvida, NUNCA 'sustenta'.\n"
+    "  - No campo 'motivo' do Art. 208, declare explicitamente se a evidência de "
+    "não-parada é inequívoca; se não for, justifique o benefício da dúvida.\n"
+)
+
+
 def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv: str) -> str:
     """Prompt do Comitê: AMPARA a decisão do auditor explicando, com fundamentação
     MBEDV, o MOTIVO de cada infração detectada — sem reanalisar o vídeo (raciocina
-    sobre a evidência já capturada pela 1ª análise + a Matriz)."""
+    sobre a evidência já capturada pela 1ª análise + a Matriz).
+
+    Quando o Art. 208 (parada obrigatória) está entre as infrações, injeta o
+    carve-out `_INSTRUCAO_ART_208`, que aplica o ônus da prova correto (benefício
+    da dúvida na imobilização breve) para mitigar o falso positivo de 'parada
+    rolante'. O carve-out NÃO afeta exceções §V (motor morre / baliza isolada /
+    comando do preposto), que continuam tratadas como compliance pela Matriz."""
     linhas = []
     for it in infracoes:
         rid = it.get("id") or it.get("codigo") or "?"
@@ -185,6 +242,10 @@ def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv
         ev = it.get("evidence") or it.get("descricao") or ""
         linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
     lista = "\n".join(linhas) if linhas else "  (nenhuma infração apontada)"
+
+    # Carve-out só entra no prompt se o Art. 208 estiver de fato em julgamento —
+    # mantém o prompt enxuto e a mudança conservadora (zero efeito nos demais).
+    bloco_208 = _INSTRUCAO_ART_208 if _tem_art_208(infracoes) else ""
 
     return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}) — a SEGUNDA \
 ANÁLISE. Sua função NÃO é repetir a 1ª análise nem só justificá-la: é VALIDAR, \
@@ -211,7 +272,7 @@ Para CADA infração, à luz da Matriz MBEDV abaixo:
   - confianca: 0.0 a 1.0.
 
 {bloco_mbedv}
-
+{bloco_208}
 DEVOLVA SOMENTE JSON:
 {{
   "infracoes": [
@@ -430,8 +491,6 @@ def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float
 
 
 def _parse_json(text: str) -> dict:
-    import re
-
     text = (text or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
