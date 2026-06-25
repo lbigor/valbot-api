@@ -1233,6 +1233,10 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "resultado_oficial": of,
                 "oficial_pendente": bool(r.get("oficial_pendente")),
                 "stage": r.get("stage"),
+                # Nº de ciclos de busca do oficial (031). 0 = RECEBIDO; >=1 =
+                # AGUARDANDO RESULTADO OFICIAL. O frontend usa pra rotular o card.
+                "buscas_oficial": int(r.get("buscas_oficial") or 0),
+                "ultima_busca_oficial": r.get("ultima_busca_oficial"),
                 "resultado_calculado": rc,
                 "pontuacao_oficial": None,
                 "pontuacao_calculada": r.get("pontuacao_total"),
@@ -2902,8 +2906,15 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
         sets.append("resultado_exame = COALESCE(%s, resultado_exame)")
         vals.append(resultado)
     if _oficial_definitivo:
+        # Oficial A/R chegou → promove recebido→queued (entra na fila da IA).
         sets.append("status = CASE WHEN status = %s THEN %s ELSE status END")
         vals.extend([STATUS_RECEBIDO, "queued"])
+    else:
+        # Oficial AINDA pendente → contabiliza 1 ciclo de validação. É o que move
+        # o exame de RECEBIDO (buscas_oficial=0) para AGUARDANDO RESULTADO OFICIAL
+        # (buscas_oficial>=1) no Kanban (stage da v_exams_overview, migration 031).
+        sets.append("buscas_oficial = COALESCE(buscas_oficial, 0) + 1")
+        sets.append("ultima_busca_oficial = NOW()")
     vals.append(hash_)
     try:
         with db._conn() as c:  # type: ignore[attr-defined]
@@ -2935,12 +2946,113 @@ class _BuscarResultadosIn(BaseModel):
     hashes: list[str] = Field(default_factory=list, description="Hashes dos exames a buscar.")
 
 
-@app.post("/api/exams/buscar-resultados")
-def exams_buscar_resultados(body: _BuscarResultadosIn, _sess: dict = Depends(require_session)):
-    """Busca em LOTE o resultado oficial no TechPrático (usado pelo Kanban)."""
-    res = [_buscar_resultado_techpratico(h) for h in body.hashes[:500]]
+def _hashes_oficial_pendente(limit: int = 1000) -> list[str]:
+    """Hashes dos exames SEM oficial definitivo (resultado_exame ∉ {A,R}) que têm
+    external_id (idAgendamento) — universo da busca em lote do oficial. Vazio se
+    DB off. É o alvo do ciclo de validação 4x/dia."""
+    try:
+        with db._conn() as c:  # type: ignore[attr-defined]
+            if c is None:
+                return []
+            rows = c.execute(
+                """
+                SELECT hash FROM exams
+                 WHERE external_id IS NOT NULL AND btrim(external_id::text) <> ''
+                   AND upper(btrim(coalesce(resultado_exame, ''))) NOT IN ('A','R')
+                 ORDER BY COALESCE(updated_at, created_at) DESC
+                 LIMIT %s
+                """,
+                (int(limit),),
+            ).fetchall()
+        return [r[0] for r in rows if r and r[0]]
+    except Exception as e:
+        log.warning("_hashes_oficial_pendente falhou: %s", e)
+        return []
+
+
+def _buscar_resultados_lote(hashes: list[str] | None = None, limit: int = 1000) -> dict:
+    """Roda UM ciclo de busca do oficial. Sem `hashes` → busca TODOS os exames sem
+    oficial definitivo (com external_id). Idempotente: cada exame que continuar
+    sem oficial incrementa buscas_oficial; o que receber A/R é promovido p/ queued.
+    Reusado pelo endpoint (Kanban/Cloud Scheduler) e pelo worker agendado."""
+    alvo = hashes if hashes else _hashes_oficial_pendente(limit)
+    res = [_buscar_resultado_techpratico(h) for h in alvo[:limit]]
     ok = sum(1 for r in res if r.get("status") == "ok")
     return {"total": len(res), "ok": ok, "resultados": res}
+
+
+@app.post("/api/exams/buscar-resultados")
+def exams_buscar_resultados(body: _BuscarResultadosIn, _sess: dict = Depends(require_session)):
+    """Busca em LOTE o resultado oficial no TechPrático.
+
+    - Com `hashes`: busca só esses (botão "Buscar lote" do Kanban).
+    - SEM `hashes` (lista vazia): roda o ciclo completo — TODOS os exames sem
+      oficial definitivo com external_id. Idempotente; é o endpoint que o Cloud
+      Scheduler pode bater 4x/dia como alternativa ao worker interno."""
+    return _buscar_resultados_lote(body.hashes[:500] if body.hashes else None)
+
+
+# Horários FIXOS do ciclo de validação do oficial (hora local America/Sao_Paulo).
+# Regra de Igor: 4x/dia. Override por env (CSV de horas) p/ ajuste sem deploy.
+_BUSCA_OFICIAL_HORARIOS = [
+    int(h)
+    for h in (os.environ.get("VALBOT_BUSCA_OFICIAL_HORAS", "8,12,16,20") or "8,12,16,20").split(",")
+    if h.strip().isdigit()
+]
+
+
+@app.on_event("startup")
+def _busca_oficial_worker() -> None:
+    """WORKER AGENDADO do resultado oficial — roda o ciclo de busca em LOTE nos
+    horários FIXOS (08/12/16/20 por padrão), 4x/dia. Mesmo padrão do
+    _auto_queue_worker: thread daemon dentro da API (sobe com o container,
+    `restart: unless-stopped` garante volta). Idempotente e robusto:
+
+    - Acorda a cada 60s, compara a hora local (America/Sao_Paulo) com a lista de
+      horários. Quando bate um horário e ainda não rodou NAQUELE slot (guarda por
+      (data, hora) na memória), dispara _buscar_resultados_lote() — todos os
+      exames sem oficial definitivo com external_id.
+    - Guarda anti-duplo-disparo: registra o último (YYYY-MM-DD, hora) executado;
+      se a API reiniciar dentro da mesma hora, não roda de novo no mesmo slot.
+    - Kill-switch: VALBOT_BUSCA_OFICIAL_AUTO=0 desliga o agendamento (a busca
+      manual e o endpoint /buscar-resultados continuam funcionando)."""
+    if os.environ.get("VALBOT_BUSCA_OFICIAL_AUTO", "1") != "1":
+        log.info("busca-oficial worker desabilitado (VALBOT_BUSCA_OFICIAL_AUTO=0)")
+        return
+    if USE_MOCK_VLM:
+        return
+    import threading
+    from datetime import datetime, timedelta, timezone
+
+    # America/Sao_Paulo é UTC-3 o ano todo (sem horário de verão desde 2019).
+    _TZ = timezone(timedelta(hours=-3))
+
+    def _runner() -> None:
+        time.sleep(25)  # boot estabiliza (depois do auto-queue)
+        log.info(
+            "busca-oficial worker ON — ciclos de validação às %s (hora SP)",
+            ", ".join(f"{h:02d}h" for h in _BUSCA_OFICIAL_HORARIOS),
+        )
+        ultimo_slot: tuple[str, int] | None = None
+        while True:
+            try:
+                agora = datetime.now(_TZ)
+                slot = (agora.strftime("%Y-%m-%d"), agora.hour)
+                if agora.hour in _BUSCA_OFICIAL_HORARIOS and slot != ultimo_slot:
+                    ultimo_slot = slot
+                    log.info("busca-oficial: ciclo de validação %02dh iniciado", agora.hour)
+                    r = _buscar_resultados_lote(None)
+                    log.info(
+                        "busca-oficial: ciclo %02dh concluído — %d buscados, %d ok",
+                        agora.hour,
+                        r.get("total", 0),
+                        r.get("ok", 0),
+                    )
+            except Exception:
+                log.exception("busca-oficial worker erro no ciclo")
+            time.sleep(60)  # checa a cada minuto (granularidade do slot = hora)
+
+    threading.Thread(target=_runner, daemon=True, name="busca-oficial").start()
 
 
 @app.post("/api/exams/{analysis_id}/reanalyze")
