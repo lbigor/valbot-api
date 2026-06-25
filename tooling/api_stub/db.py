@@ -1263,6 +1263,41 @@ def ensure_os_em_auditoria(hashes: list[str]) -> int:
         return 0
 
 
+def reset_running_orfaos(idade_min: int = 5) -> int:
+    """Re-enfileira exames presos em status='running' órfãos (sem worker ativo).
+
+    Cada restart do container (CD, recreate) mata os batches em andamento e deixa
+    os exames como 'running' órfãos; o worker só faz CLAIM de 'queued'
+    (_claim_next_queued), então nunca os recupera → a fila trava. No BOOT do worker
+    nenhum processamento está ativo (o processo anterior morreu), logo é seguro
+    resetar todos os 'running' de volta para 'queued'. O gate de resultado oficial
+    NÃO é tocado aqui: exames sem oficial voltam a 'queued' e o worker corretamente
+    os SKIPa; os com oficial são processados.
+
+    `idade_min` (default 5) — só reseta 'running' mais velhos que isso, por garantia
+    (no boot qualquer órfão real já passou disso). Best-effort/idempotente: try/except,
+    loga e NUNCA derruba o boot. Retorna o nº de linhas afetadas (0 se DB off / nada).
+    """
+    if _disabled():
+        return 0
+    try:
+        with _conn() as c:
+            if c is None:
+                return 0
+            cur = c.execute(
+                """
+                UPDATE exams SET status='queued', updated_at=NOW()
+                WHERE status='running'
+                  AND updated_at < NOW() - (%s || ' minutes')::interval
+                """,
+                (str(int(idade_min)),),
+            )
+            return cur.rowcount or 0
+    except Exception as e:
+        log.warning("db.reset_running_orfaos falhou: %s", e)
+        return 0
+
+
 def save_parecer_auditor(
     os_id: str,
     *,
