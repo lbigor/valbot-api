@@ -974,6 +974,12 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     # em status='uploading' (o caminho gs_video está gravado, mas o objeto não
     # existe no GCS — download nunca concluiu). Esses não têm o que auditar.
     rows = [r for r in rows if (r.get("status") or "").strip().lower() != "uploading"]
+    # Sinais de ETAPA da cadeia humana (auditor/supervisor) por hash do exame.
+    # Lidos das tabelas reais da OS (ordens_servico/supervisor_decisoes) — read-only
+    # e derivado, sem tocar no pipeline. Batelada única; vazio/None se DB off ou
+    # se nenhuma OS existir ainda (tabela vazia em prod → todos os sinais null).
+    _hashes = [r.get("hash") for r in rows if r.get("hash")]
+    _signals = db.os_signals(_hashes) or {}
     items = []
     for r in rows:
         # Campos canônicos vêm da view (v_exams_overview, migration 027) — fonte
@@ -987,6 +993,14 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
         sla_due_at = _add_hours(aberta_em, db.SLA_PRAZO_AUDITOR_H)
         # video_ok agora é canônico da view (migration 028); fallback p/ janela de deploy.
         video_ok = r.get("video_ok") if "video_ok" in r else _derive_video_ok(r)
+        # Sinais de etapa da cadeia humana p/ este exame (null se sem OS).
+        _sig = _signals.get(h, {})
+        _auditor_email = _sig.get("auditor_email")
+        _supervisor_email = _sig.get("supervisor_email")
+        # Derivados (booleanos) que as filas usam pra respeitar a cadeia:
+        # comitê → fila do auditor → fila do supervisor → encerra.
+        _tem_parecer_auditor = bool(_auditor_email)
+        _tem_decisao_supervisor = bool(_supervisor_email)
         # Sinalizador de estágio de processamento do vídeo (sempre presente).
         _st = (r.get("status") or "").strip().lower()
         if r.get("gate_rejected"):
@@ -1034,8 +1048,13 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "resultado_calculado": rc,
                 "pontuacao_oficial": None,
                 "pontuacao_calculada": r.get("pontuacao_total"),
-                "auditor_email": None,
-                "supervisor_email": None,
+                "auditor_email": _auditor_email,
+                "supervisor_email": _supervisor_email,
+                # Derivados da cadeia humana (comitê → auditor → supervisor):
+                # filas filtram por estes pra não pular etapa. null/false sem OS.
+                "tem_parecer_auditor": _tem_parecer_auditor,
+                "tem_decisao_supervisor": _tem_decisao_supervisor,
+                "os_status": _sig.get("os_status"),
                 "aberta_em": aberta_em,
                 "sla_due_at": sla_due_at,
                 "conf": None,

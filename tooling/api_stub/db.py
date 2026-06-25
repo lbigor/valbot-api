@@ -1385,6 +1385,73 @@ def os_enrichment(hashes: list[str]) -> dict[str, dict] | None:
         return None
 
 
+def os_signals(hashes: list[str]) -> dict[str, dict] | None:
+    """Sinais de ETAPA da cadeia humana por exam_hash, lidos das tabelas reais da
+    OS (ordens_servico / supervisor_decisoes). Read-only e derivado — NÃO altera
+    o pipeline nem grava nada. Uma query batelada por exam_hash. None se DB off;
+    {} se nenhum hash.
+
+    A fila de /api/os é montada por hash de exame (v_exams_overview), mas os
+    sinais de quem já agiu vivem na OS:
+      - auditor_email: ordens_servico.auditor_email (setado em save_parecer_auditor
+        quando o auditor dá o parecer — a OS passa a 'aguardando_supervisor').
+      - supervisor_email: supervisor_decisoes.supervisor_email (a coluna homônima
+        em ordens_servico existe mas NÃO é preenchida; a fonte real da decisão é
+        supervisor_decisoes — ver save_supervisor_decisao).
+      - os_status: ordens_servico.status (estágio bruto da OS, p/ depuração).
+
+    Ausência de hash no dicionário ⇒ sem OS ⇒ o chamador trata como null/sem
+    parecer. NUNCA inventa valor: só entram hashes que têm OS no banco.
+    """
+    if _disabled():
+        return None
+    hs = [h for h in (hashes or []) if h]
+    if not hs:
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        with _conn() as c:
+            if c is None:
+                return None
+            # auditor_email + status da OS, por hash do exame (1 OS por exame).
+            cur = c.execute(
+                """
+                SELECT e.hash, os.auditor_email, os.status
+                FROM ordens_servico os
+                JOIN exams e ON e.id = os.exam_id
+                WHERE e.hash = ANY(%s)
+                """,
+                (hs,),
+            )
+            for h, auditor_email, status in cur.fetchall():
+                d = out.setdefault(h, {})
+                if auditor_email:
+                    d["auditor_email"] = auditor_email
+                if status:
+                    d["os_status"] = status
+
+            # Supervisor: fonte real é supervisor_decisoes (a coluna em
+            # ordens_servico não é preenchida). Pega a decisão mais recente.
+            cur = c.execute(
+                """
+                SELECT DISTINCT ON (e.hash) e.hash, sd.supervisor_email
+                FROM supervisor_decisoes sd
+                JOIN ordens_servico os ON os.id = sd.os_id
+                JOIN exams e ON e.id = os.exam_id
+                WHERE e.hash = ANY(%s)
+                ORDER BY e.hash, sd.created_at DESC
+                """,
+                (hs,),
+            )
+            for h, supervisor_email in cur.fetchall():
+                if supervisor_email:
+                    out.setdefault(h, {})["supervisor_email"] = supervisor_email
+            return out
+    except Exception as e:
+        log.exception("db.os_signals falhou: %s", e)
+        return None
+
+
 def count_resultados(
     *,
     dias: int | None = None,
