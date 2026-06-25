@@ -5461,7 +5461,9 @@ def validar_coerencia_laudo(infracoes: list[dict], resultado_final: str | None) 
 class _ParecerAuditorIn(BaseModel):
     decisao: str = Field(..., description="concorda | discorda")
     resultado_final: str | None = Field(None, description="aprovado | reprovado")
-    infracoes: list[dict] = Field(default_factory=list)
+    # `infracoes` é ACEITO mas IGNORADO (retrocompat com o front em rollout): o
+    # parecer humano NÃO carrega lista de infrações. Não persistido nem repassado.
+    infracoes: list[dict] | None = Field(default=None, description="DEPRECATED — ignorado")
     justificativa: str | None = None
     referencia_mbedv: str | None = None
 
@@ -5485,7 +5487,9 @@ def post_parecer_auditor_by_hash(
         raise HTTPException(422, "decisao deve ser 'concorda' ou 'discorda'")
     user = _current_user(valbot_session)
     auditor = (user or {}).get("email")
-    coerencia = validar_coerencia_laudo(data.infracoes, data.resultado_final)
+    # `data.infracoes` é IGNORADO (retrocompat): o parecer humano não carrega
+    # infrações. Coerência avalia só o veredito (sem lista de infrações).
+    coerencia = validar_coerencia_laudo([], data.resultado_final)
 
     os_id = None
     try:
@@ -5502,7 +5506,6 @@ def post_parecer_auditor_by_hash(
             "auditor": auditor,
             "decisao": data.decisao,
             "resultado_final": data.resultado_final,
-            "infracoes": data.infracoes,
             "justificativa": data.justificativa,
             "referencia_mbedv": data.referencia_mbedv,
             "coerencia": coerencia,
@@ -5514,7 +5517,6 @@ def post_parecer_auditor_by_hash(
         auditor=auditor,
         decisao=data.decisao,
         resultado_final=data.resultado_final,
-        infracoes=data.infracoes,
         justificativa=data.justificativa,
         referencia_mbedv=data.referencia_mbedv,
     )
@@ -5527,7 +5529,6 @@ def post_parecer_auditor_by_hash(
             "auditor": auditor,
             "decisao": data.decisao,
             "resultado_final": data.resultado_final,
-            "infracoes": data.infracoes,
             "justificativa": data.justificativa,
             "referencia_mbedv": data.referencia_mbedv,
             "coerencia": coerencia,
@@ -5806,6 +5807,31 @@ def relatorios_resultados(
     }
 
 
+def _res_label(v) -> str | None:
+    """Normaliza qualquer representação de veredito → 'APROVADO'|'REPROVADO'|None.
+
+    Aceita: 'A'/'R', bool (True=aprovado), 'aprovado'/'reprovado', 'aprov'/'repr',
+    'homologar' (segue resultado, não decide por si → None), variações com acento/
+    caixa. Entrada nula/desconhecida → None.
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return "APROVADO" if v else "REPROVADO"
+    s = str(v).strip().lower()
+    if not s:
+        return None
+    if s in ("a", "aprovado", "aprov", "aprovada", "approved", "homologado"):
+        return "APROVADO"
+    if s in ("r", "reprovado", "repr", "reprovada", "reproved", "rejected", "reprov"):
+        return "REPROVADO"
+    if s.startswith("aprov"):
+        return "APROVADO"
+    if s.startswith("reprov") or s.startswith("repr"):
+        return "REPROVADO"
+    return None
+
+
 def _laudo_blocos_14_2(hash_: str) -> dict:
     """Monta os 14 blocos do §14.2 a partir do dossiê do DB (exam + comitê +
     parecer + decisão + eventos). DB off → placeholder com os 14 blocos vazios.
@@ -5914,6 +5940,39 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         )
     )
 
+    # --- Vereditos A/R normalizados (EXIBIÇÃO; não substituem campos existentes) -
+    # Bloco 9: o Comitê não emite veredito próprio — deriva-se da conclusão.
+    #   concorda_com_examinador          → segue o resultado oficial (bloco 4).
+    #   manter_divergencia_com_fundamentacao → o oposto (o que a IA sustenta, b.5).
+    _concl_comite = str(comite.get("conclusao_comite") or "").strip().lower()
+    if _concl_comite.startswith("concorda"):
+        _veredito_comite = _res_label(resultado_oficial)
+    elif _concl_comite.startswith("manter_diverg") or "diverg" in _concl_comite:
+        _veredito_comite = _res_label(resultado_calculado)
+    else:
+        _veredito_comite = None
+
+    # Bloco 10: veredito do auditor = resultado_final (já 'aprovado'/'reprovado').
+    _veredito_auditor = _res_label(parecer.get("resultado_final"))
+
+    # Bloco 11: veredito do supervisor. 'homologar' segue o parecer do auditor;
+    # 'reformar' sobrepõe (o oposto do parecer). resultado_final explícito tem
+    # precedência quando presente.
+    _dec_sup = str(decisao.get("decisao") or "").strip().lower()
+    _sup_final_explicit = _res_label(decisao.get("resultado_final"))
+    if _sup_final_explicit is not None:
+        _veredito_supervisor = _sup_final_explicit
+    elif _dec_sup.startswith("homolog"):
+        _veredito_supervisor = _veredito_auditor
+    elif _dec_sup.startswith("reform"):
+        _veredito_supervisor = (
+            "REPROVADO"
+            if _veredito_auditor == "APROVADO"
+            else ("APROVADO" if _veredito_auditor == "REPROVADO" else None)
+        )
+    else:
+        _veredito_supervisor = None
+
     blocos = {
         # 1 — IDENTIFICAÇÃO DO LAUDO
         "1_identificacao": {
@@ -6016,9 +6075,15 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "encaminhamento": divergencia.get("encaminhamento"),
             "detalhes": divergencia.get("detalhes"),
         },
-        "9_comite_ia": {**comite, **comite_meta},
-        "10_parecer_auditor": parecer,
-        "11_decisao_supervisor": decisao,
+        # 9 — COMITÊ DE IA. veredito_comite ACRESCENTADO (derivado, EXIBIÇÃO);
+        # conclusao_comite e demais campos preservados intactos.
+        "9_comite_ia": {**comite, **comite_meta, "veredito_comite": _veredito_comite},
+        # 10 — PARECER AUDITOR. veredito_auditor ACRESCENTADO; decisao/
+        # resultado_final preservados.
+        "10_parecer_auditor": {**parecer, "veredito_auditor": _veredito_auditor},
+        # 11 — DECISÃO SUPERVISOR. veredito_supervisor ACRESCENTADO; decisao
+        # preservada.
+        "11_decisao_supervisor": {**decisao, "veredito_supervisor": _veredito_supervisor},
         # 12 — LINHA DO TEMPO: trilha da OS + cronologia de eventos brutos
         "12_eventos_os": eventos,
         "12b_linha_tempo": eventos_brutos,
