@@ -3840,7 +3840,10 @@ def dashboard_diario(
     Resiliente: DB off / erro de query ⇒ {items: [], source: "mock"}. Protegido
     por require_session, igual aos demais dashboards. NÃO altera endpoints
     existentes — fonte e critérios espelham /api/dashboard/valbot."""
+    # Clamp em [1,365] → vira inteiro seguro p/ interpolação direta na janela
+    # (mesma estratégia de string do /api/dashboard/valbot, que funciona).
     dias = max(1, min(int(dias), 365))
+    janela = dias - 1  # "inclui hoje": CURRENT_DATE - (dias-1) dias .. CURRENT_DATE
     out: dict = {"items": [], "source": "mock"}
     try:
         from tooling.api_stub import db as _db
@@ -3850,6 +3853,11 @@ def dashboard_diario(
                 return out
             # Janela: últimos `dias` dias (inclui hoje) por data de recebimento.
             # gs_video LIKE 'gs://%' = mesmo recorte de vídeos reais do dashboard.
+            #
+            # IMPORTANTE: a janela é INTERPOLADA como inteiro já clampado em
+            # [1,365] (injection-safe), espelhando o /api/dashboard/valbot —
+            # `make_interval(days => %s - 1)` com placeholder estourava e
+            # derrubava a query inteira para o fallback mock.
             rows = c.execute(
                 # Fonte = tabela `exams` (mesma do /api/dashboard/valbot, que
                 # funciona). A v_exams_overview NÃO expõe `resultado_oficial`
@@ -3868,10 +3876,9 @@ def dashboard_diario(
                 "                 AND aprovado IS NOT NULL) AS comparaveis "
                 "FROM exams "
                 "WHERE gs_video LIKE 'gs://%' "
-                "AND created_at >= (CURRENT_DATE - make_interval(days => %s - 1)) "
+                f"AND created_at >= CURRENT_DATE - INTERVAL '{janela} days' "
                 "GROUP BY 1, date_trunc('day', created_at) "
-                "ORDER BY date_trunc('day', created_at)",
-                (dias,),
+                "ORDER BY date_trunc('day', created_at)"
             ).fetchall()
             out["items"] = [
                 {
@@ -3885,8 +3892,11 @@ def dashboard_diario(
                 for r in rows
             ]
             out["source"] = "db"
-    except Exception as e:
-        log.warning("dashboard_diario falhou: %s", e)
+    except Exception as err:
+        # NÃO engolir silencioso: logar o erro real para diagnóstico futuro
+        # (a causa anterior — placeholder em make_interval — ficou invisível
+        # justamente por um except mudo).
+        log.warning("dashboard_diario falhou, caindo em mock: %s", err)
         return {"items": [], "source": "mock"}
     return out
 
