@@ -13,6 +13,7 @@ indevidas. O teste é cheap insurance contra esse modo de falha.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -58,13 +59,14 @@ class TestPresetV25InDubioPrinciple:
         )
 
     def test_confidence_threshold_explicit(self, preset_v25: str):
-        """Limiar numérico de 0.70 deve estar explícito."""
-        threshold_present = (
-            "< 0.70" in preset_v25 or "< 0,70" in preset_v25 or "&lt; 0.70" in preset_v25
-        )
-        assert threshold_present, (
-            "Limiar de confidence < 0.70 ausente. Sem ele, o modelo "
-            "não tem critério objetivo para 'dúvida'."
+        """Deve existir um limiar in-dubio de confiança explícito e numérico
+        (ex.: '< 0.60'). O VALOR pode evoluir (o Tier B foi rebaixado 0.70→0.60,
+        documentado no preset; Tier A segue 0.70) — o que este teste garante é
+        que HÁ um critério objetivo de 'dúvida'. Sem ele o modelo não tem piso
+        para não-apontar."""
+        assert re.search(r"<\s*0[.,]\d", preset_v25), (
+            "Limiar in-dubio de confidence (ex.: '< 0.NN') ausente. Sem ele, o "
+            "modelo não tem critério objetivo para 'dúvida'."
         )
 
     def test_authorized_command_clause(self, preset_v25: str):

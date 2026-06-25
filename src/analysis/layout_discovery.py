@@ -25,7 +25,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 log = logging.getLogger(__name__)
 
@@ -207,11 +207,13 @@ def _derive_layout_from_quadrantes(cm: CameraMap) -> None:
     cm.confianca_layout = max(cm.confianca_layout, derivada)
     # Completa quadrantes faltantes com a ordem canônica derivada.
     for q, cam in ordem.items():
+        q = cast(QuadrantName, q)
+        cam = cast(CameraName, cam)
         info = cm.quadrantes.get(q)
         if info is None or info.camera in ("desconhecido", "", None):
             cm.quadrantes[q] = QuadrantInfo(
                 camera=cam, confianca=derivada, descricao="derivado_da_posicao"
-            )  # type: ignore[index]
+            )
     log.info(
         "layout_discovery: derivado %s (fab=%s, votos vip=%d hik=%d, conf=%.2f) — binário forçado",
         layout_enum,
@@ -243,11 +245,13 @@ def _infer_layout_from_fabricante(cm: CameraMap) -> None:
     cm.layout_detectado = layout_enum  # type: ignore[assignment]
     # Só preenche quadrantes que o flash deixou vazio/desconhecido.
     for q, cam in ordem.items():
+        q = cast(QuadrantName, q)
+        cam = cast(CameraName, cam)
         info = cm.quadrantes.get(q)
         if info is None or info.camera in ("desconhecido", "", None):
             cm.quadrantes[q] = QuadrantInfo(
                 camera=cam, confianca=cm.confianca_layout, descricao="inferido_do_fabricante"
-            )  # type: ignore[index]
+            )
     log.info(
         "layout_discovery: inferido %s do fabricante=%s (conf=%.2f) — recuperado do fallback",
         layout_enum,
@@ -317,7 +321,7 @@ def discover_layout(
     Roda até `max_tentativas` vezes e devolve o primeiro resultado `confiavel`
     (ou o de maior confiança se nenhum passar). Custo por tentativa ~$0.01.
     """
-    melhor = None
+    melhor: CameraMap | None = None
     for tentativa in range(1, max_tentativas + 1):
         cm = _discover_layout_once(
             gs_uri,

@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.analysis.layout_discovery import CameraMap
+    from src.analysis.layout_discovery import CameraMap, QuadrantName
 
 log = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ _CAM_FILE = {
 
 # Ordem visual canônica (não influi na composição mas o composer respeita
 # a ordem do CameraMap recebido).
-_QUADRANT_ORDER = ("TL", "TR", "BL", "BR")
+_QUADRANT_ORDER: tuple[QuadrantName, ...] = ("TL", "TR", "BL", "BR")
 
 
 def _read(path: Path) -> str:

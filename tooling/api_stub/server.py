@@ -555,7 +555,14 @@ _SPA_READ_RE = re.compile(
 # no endpoint por Depends(require_session) — exigem cookie de login válido.
 # Ou seja: não são públicas, só não usam o token admin secreto.
 _SPA_ACTION_RE = re.compile(
-    r"^/api/exams/(?:[^/]+/reanalyze|process-pending|enviar-laudos|[^/]+/parecer-auditor)$"
+    r"^/api/exams/(?:"
+    r"[^/]+/reanalyze"
+    r"|[^/]+/buscar-resultado"  # busca single do resultado oficial (TechPrático)
+    r"|buscar-resultados"  # busca em LOTE (botão "Buscar lote" do Kanban)
+    r"|process-pending"
+    r"|enviar-laudos"
+    r"|[^/]+/parecer-auditor"
+    r")$"
 )
 # Telas de Gestão (Usuários, Relatórios, Medição, Cron/Batch, Supervisor) —
 # todas protegidas por Depends(require_session) no endpoint; aqui só dispensamos
@@ -954,25 +961,45 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     geradas pelo pipeline em prod (tabela vazia); derivamos a fila das DIVERGÊNCIAS
     reais (exame onde o veredito oficial difere do calculado pela IA), que é
     exatamente o que o supervisor arbitra. Dados 100% reais de v_exams_overview."""
-    rows = db.list_resultados(dias=3650, limit=400) or []
+    # Fila do auditor E do supervisor: vídeos a partir da data de corte, apenas
+    # da categoria B (1ª habilitação — o que entra no fluxo de auditoria). Não
+    # só as divergências; cada exame ganha um sinalizador de status. Corte e
+    # categoria configuráveis por env; default 13/06/2026 + B (inclui a semana
+    # passada — exames de 13-14/06, já com resultado oficial — além da atual).
+    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
+    fila_categoria = os.environ.get("VALBOT_FILA_CATEGORIA", "B")
+    rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
+    # "Sem vídeo disponível" NÃO entra na Operação/fila: ingestão incompleta presa
+    # em status='uploading' (o caminho gs_video está gravado, mas o objeto não
+    # existe no GCS — download nunca concluiu). Esses não têm o que auditar.
+    rows = [r for r in rows if (r.get("status") or "").strip().lower() != "uploading"]
     items = []
-    n = 0
     for r in rows:
-        of = (r.get("resultado_exame") or "").strip().upper()
-        ap = r.get("aprovado")
-        diverge = (of == "A" and ap is False) or (of == "R" and ap is True)
-        if not diverge:
-            continue
-        n += 1
-        rc = "A" if ap is True else ("R" if ap is False else None)
+        # Campos canônicos vêm da view (v_exams_overview, migration 027) — fonte
+        # única. Oficial só é definitivo se A/R; None ⇒ pendente. Sem rederivar.
+        of = r.get("resultado_oficial")  # 'A' | 'R' | None (None ⇒ oficial pendente)
+        diverge = bool(r.get("divergente"))
+        rc = r.get("resultado_calculado")
         h = r.get("hash")
         aberta_em = r.get("created_at")
         # SLA: aberta_em + prazo do auditor (default 24h). Null se sem abertura.
         sla_due_at = _add_hours(aberta_em, db.SLA_PRAZO_AUDITOR_H)
-        # video_ok: qualidade de câmera/vídeo OK. A v_exams_overview já traz o
-        # veredito do validador (HOMO/NAO_HOMO) + a confiança do layout. Sem
-        # nenhum dos sinais ⇒ null (não inventa).
-        video_ok = _derive_video_ok(r)
+        # video_ok agora é canônico da view (migration 028); fallback p/ janela de deploy.
+        video_ok = r.get("video_ok") if "video_ok" in r else _derive_video_ok(r)
+        # Sinalizador de estágio de processamento do vídeo (sempre presente).
+        _st = (r.get("status") or "").strip().lower()
+        if r.get("gate_rejected"):
+            status_proc = "gate_rejeitado"
+        elif _st in ("processed", "done", "concluido", "concluído"):
+            status_proc = "processado"
+        elif _st in ("running", "processing", "analisando"):
+            status_proc = "processando"
+        elif _st in ("queued", "pending", "novo", "uploaded", "recebido"):
+            status_proc = "aguardando"
+        elif _st in ("failed", "error", "erro"):
+            status_proc = "falhou"
+        else:
+            status_proc = _st or "desconhecido"
         items.append(
             {
                 "os_id": h,
@@ -984,10 +1011,25 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "categoria": r.get("categoria"),
                 "unidade": r.get("local_unidade"),
                 "examinador": r.get("examinador"),
-                "tipo_divergencia": "resultado",
-                "tipo_label": "Divergência de resultado",
+                # Sem oficial definitivo (pendente) NÃO é concordante nem divergente
+                # — é "Aguardando resultado oficial". Concordância só com oficial A/R.
+                "tipo_divergencia": (
+                    "pendente"
+                    if r.get("oficial_pendente")
+                    else ("resultado" if diverge else "concordante")
+                ),
+                "tipo_label": (
+                    "Aguardando resultado oficial"
+                    if r.get("oficial_pendente")
+                    else ("Divergência de resultado" if diverge else "Concordante")
+                ),
                 "status": "aguardando_supervisor",
-                "resultado_oficial": of or None,
+                "status_proc": status_proc,
+                "gate_rejected": bool(r.get("gate_rejected")),
+                "divergente": diverge,
+                "resultado_oficial": of,
+                "oficial_pendente": bool(r.get("oficial_pendente")),
+                "stage": r.get("stage"),
                 "resultado_calculado": rc,
                 "pontuacao_oficial": None,
                 "pontuacao_calculada": r.get("pontuacao_total"),
@@ -996,23 +1038,14 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
                 "aberta_em": aberta_em,
                 "sla_due_at": sla_due_at,
                 "conf": None,
-                # Sinalizadores derivados de dados já existentes no banco.
-                "conduta_inadequada": None,  # preenchido abaixo (compliance)
+                # Sinalizadores canônicos da view (migration 027) — comitê e
+                # conduta agora saem do core, sem query de enriquecimento à parte.
+                "conduta_inadequada": bool(r.get("conduta_inadequada")),
                 "video_ok": video_ok,
-                "comite_concluido": None,  # preenchido abaixo (comitê)
+                "tem_anotacoes": bool(r.get("tem_anotacoes")),
+                "comite_concluido": bool(r.get("comite_concluido")),
             }
         )
-    # Enriquece com sinais que não estão na view (compliance + comitê), em uma
-    # query batelada por hash. Ausência de dado ⇒ permanece null.
-    try:
-        enr = db.os_enrichment([i["exam_hash"] for i in items]) or {}
-        for i in items:
-            sig = enr.get(i["exam_hash"])
-            if sig:
-                i["conduta_inadequada"] = sig.get("conduta_inadequada")
-                i["comite_concluido"] = sig.get("comite_concluido")
-    except Exception as e:
-        log.warning("list_os_v2 enrichment falhou: %s", e)
     if status:
         items = [i for i in items if i["status"] == status]
     return {"count": len(items), "items": items, "source": "db"}
@@ -1304,6 +1337,7 @@ def rubrica(slug: str):
         "peso_variavel",
         "categorias_aplicaveis",
         "conduta_observavel",
+        "descricao",
         "evidencia_necessaria",
         "constatacao",
         "informacoes_complementares",
@@ -1360,7 +1394,7 @@ def rubrica(slug: str):
                 "gravidade": grav,
                 "gravidade_label": LABELS.get(grav, grav.upper()),
                 "pontos": pontos,
-                "descricao": d.get("conduta_observavel") or "",
+                "descricao": d.get("descricao") or d.get("conduta_observavel") or "",
                 "base_legal": base_legal,
                 "categorias": categorias,
                 "constatacao": d.get("constatacao") or "",
@@ -1548,6 +1582,13 @@ class InitUploadRequest(BaseModel):
         description="URL HTTPS do vídeo já hospedado externamente. Backend faz GET e copia pro GCS.",
     )
     renach: str = Field(..., min_length=1, description="RENACH/CNH do candidato")
+    id: int | None = Field(
+        default=None,
+        description=(
+            "ID externo / idAgendamento do integrador (ex.: TechPrático). Persiste em "
+            "exams.external_id e é a chave para buscar o resultado oficial. Opcional."
+        ),
+    )
     candidato_nome: str = ""
     candidato_cpf: str = ""
     processo: str = ""
@@ -1769,6 +1810,10 @@ def _build_meta_legacy(req: InitUploadRequest, analysis_id: str, ct: str, blob_n
     """Constrói upload.json no formato rico (legado/objeto-único)."""
     return {
         "analysis_id": analysis_id,
+        # idAgendamento do integrador — chave p/ buscar o resultado oficial no TechPrático.
+        "external_id": req.id,
+        # Payload BRUTO completo recebido — nunca mais perder campo que o integrador mande.
+        "raw": req.model_dump(mode="json"),
         "received_at": datetime.utcnow().isoformat() + "Z",
         "video": {
             "source_url": req.url,
@@ -1830,6 +1875,9 @@ def _build_meta_batch(item: InitUploadItem, analysis_id: str, ct: str, blob_name
         },
         "training_annotations": [a.model_dump() for a in item.training_annotations],
         "external_id": item.id,
+        # Payload BRUTO completo do item recebido — paridade com _build_meta_legacy.
+        # Nunca mais perder campo que o integrador mande (idAgendamento, etc.).
+        "raw": item.model_dump(mode="json"),
         # Veredito presencial do examinador (vem da integração — COFRE imutável).
         "resultado_exame": item.resultado_exame,
         "engine": {
@@ -1966,7 +2014,7 @@ async def init_upload(
             InitUploadItem(
                 url=legacy_req.url,
                 categoria=legacy_req.categoria,
-                id=None,
+                id=legacy_req.id,
                 renach=legacy_req.renach,
                 processo=legacy_req.processo or None,
             )
@@ -2568,6 +2616,94 @@ def _enqueue_reanalysis(
     _write_status(out_dir, "queued")
     background.add_task(_run_analysis, analysis_id, video_ref, upload_meta, force_v26)
     return {"analysis_id": analysis_id, "status": "queued", "video_ref": video_ref}
+
+
+def _buscar_resultado_techpratico(hash_: str) -> dict:
+    """Busca o resultado OFICIAL do exame no TechPrático (inbound) e persiste.
+
+    POST /conversao/dados-exame-analise-ia {idAgendamento=external_id, id_analise=hash}.
+    Salva `resultado_exame` (cofre — COALESCE, nunca apaga) + `training_annotations`
+    em `exams`. Devolve o status por exame (ok | sem_idagendamento | erro*).
+    """
+    import urllib.error
+    import urllib.request
+
+    # Lê o external_id (idAgendamento) via _conn() — db não tem fetch_one.
+    with db._conn() as _c:  # type: ignore[attr-defined]
+        if _c is None:
+            return {"hash": hash_, "status": "db_off"}
+        _r = _c.execute("SELECT external_id FROM exams WHERE hash = %s", (hash_,)).fetchone()
+    if _r is None:
+        return {"hash": hash_, "status": "nao_encontrado"}
+    ext = _r[0]
+    if not ext:
+        # idAgendamento não foi salvo na ingestão (exame antigo) — nada a buscar.
+        return {"hash": hash_, "status": "sem_idagendamento"}
+
+    base = os.environ.get("VALBOT_TECHPRATICO_BASE", "https://convert.se.techpratico.net")
+    headers = {"Content-Type": "application/json"}
+    key = os.environ.get("VALBOT_TECHPRATICO_API_KEY", "")
+    if key:
+        headers["X-API-Key"] = key
+    payload = json.dumps({"idAgendamento": int(ext), "id_analise": hash_}).encode()
+    req = urllib.request.Request(
+        base + "/conversao/dados-exame-analise-ia",
+        data=payload,
+        headers=headers,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            resp = json.load(r)
+    except urllib.error.HTTPError as e:
+        return {
+            "hash": hash_,
+            "status": "erro_http",
+            "code": e.code,
+            "msg": e.read().decode()[:200],
+        }
+    except Exception as e:
+        return {"hash": hash_, "status": "erro", "msg": str(e)[:200]}
+
+    resultado = resp.get("resultado_exame")
+    annots = resp.get("training_annotations") or []
+    # db não tem to_jsonb — serializa e faz cast ::jsonb no UPDATE.
+    sets = ["training_annotations = %s::jsonb"]
+    vals: list = [json.dumps(annots)]
+    if resultado:
+        sets.append("resultado_exame = COALESCE(%s, resultado_exame)")
+        vals.append(resultado)
+    vals.append(hash_)
+    try:
+        with db._conn() as c:  # type: ignore[attr-defined]
+            if c is not None:
+                c.execute(f"UPDATE exams SET {', '.join(sets)} WHERE hash = %s", vals)
+    except Exception as e:
+        return {"hash": hash_, "status": "erro_persist", "msg": str(e)[:200]}
+    return {
+        "hash": hash_,
+        "status": "ok",
+        "resultado_exame": resultado,
+        "n_annotations": len(annots),
+    }
+
+
+@app.post("/api/exams/{hash}/buscar-resultado")
+def exam_buscar_resultado(hash: str, _sess: dict = Depends(require_session)):
+    """Busca o resultado oficial do exame no TechPrático e persiste (single)."""
+    return _buscar_resultado_techpratico(hash)
+
+
+class _BuscarResultadosIn(BaseModel):
+    hashes: list[str] = Field(default_factory=list, description="Hashes dos exames a buscar.")
+
+
+@app.post("/api/exams/buscar-resultados")
+def exams_buscar_resultados(body: _BuscarResultadosIn, _sess: dict = Depends(require_session)):
+    """Busca em LOTE o resultado oficial no TechPrático (usado pelo Kanban)."""
+    res = [_buscar_resultado_techpratico(h) for h in body.hashes[:500]]
+    ok = sum(1 for r in res if r.get("status") == "ok")
+    return {"total": len(res), "ok": ok, "resultados": res}
 
 
 @app.post("/api/exams/{analysis_id}/reanalyze")
@@ -3523,6 +3659,13 @@ def dashboard_valbot(
         "divergencia_por_examinador": [],
         "divergencia_por_unidade": [],
         "divergencia_por_categoria": [],
+        # Indicador "recebidos × resultado oficial × anotações" (totais do período).
+        "recebidos_total": 0,
+        "com_oficial_total": 0,
+        "oficial_aprovado_total": 0,
+        "oficial_reprovado_total": 0,
+        "aguardando_oficial_total": 0,
+        "com_anotacoes_total": 0,
         "volume_14d": [],
     }
     try:
@@ -3599,19 +3742,67 @@ def dashboard_valbot(
             out["divergencia_por_unidade"] = _div_por("local_unidade", "unidade")
             out["divergencia_por_categoria"] = _div_por("categoria", "categoria")
 
-            # Com período selecionado → série dentro do período; senão, últimos 14 dias.
+            # Indicador "recebidos × resultado oficial × anotações" — da view
+            # canônica (v_exams_overview, migrations 027/028). Fonte única.
+            # MESMO ESCOPO da fila operacional (Kanban): categoria + corte, e
+            # "aguardando" = stage='aguardando_oficial' (não inclui processando/
+            # falhou) — assim o número bate com a coluna do Kanban.
+            _ind_cat = (os.environ.get("VALBOT_FILA_CATEGORIA", "B") or "B").strip().upper()[:1]
+            if _ind_cat not in ("A", "B", "C", "D", "E"):
+                _ind_cat = "B"
+            _ind_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
+            _ind_desde = (
+                _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-06-13"
+            )
+            vbase = (
+                f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
+                f" AND categoria = '{_ind_cat}' AND created_at >= '{_ind_desde}'"
+            )
+            trow = c.execute(
+                f"SELECT COUNT(*), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
+                f"COUNT(*) FILTER (WHERE stage='aguardando_oficial'), "
+                f"COUNT(*) FILTER (WHERE tem_anotacoes) "
+                f"{vbase}"
+            ).fetchone()
+            out["recebidos_total"] = int(trow[0] or 0)
+            out["com_oficial_total"] = int(trow[1] or 0)
+            out["oficial_aprovado_total"] = int(trow[2] or 0)
+            out["oficial_reprovado_total"] = int(trow[3] or 0)
+            out["aguardando_oficial_total"] = int(trow[4] or 0)
+            out["com_anotacoes_total"] = int(trow[5] or 0)
+
+            # Série diária. Com período → dentro do período; senão, últimos 14 dias.
             vol_where = (
-                base if has_range else f"{base} AND created_at >= NOW() - INTERVAL '14 days'"
+                vbase if has_range else f"{vbase} AND created_at >= NOW() - INTERVAL '14 days'"
             )
             vrows = c.execute(
                 f"SELECT to_char(date_trunc('day', created_at), 'DD/MM') AS dia, "
-                f"COUNT(*), COUNT(*) FILTER (WHERE status='processed') "
+                f"COUNT(*), "
+                f"COUNT(*) FILTER (WHERE status='processed'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='A'), "
+                f"COUNT(*) FILTER (WHERE resultado_oficial='R'), "
+                f"COUNT(*) FILTER (WHERE stage='aguardando_oficial'), "
+                f"COUNT(*) FILTER (WHERE tem_anotacoes) "
                 f"{vol_where} "
                 f"GROUP BY 1, date_trunc('day', created_at) "
                 f"ORDER BY date_trunc('day', created_at)"
             ).fetchall()
             out["volume_14d"] = [
-                {"dia": r[0], "recebidos": int(r[1]), "processados": int(r[2])} for r in vrows
+                {
+                    "dia": r[0],
+                    "recebidos": int(r[1]),
+                    "processados": int(r[2]),
+                    "com_oficial": int(r[3]),
+                    "aprovados": int(r[4]),
+                    "reprovados": int(r[5]),
+                    "aguardando": int(r[6]),
+                    "com_anotacoes": int(r[7]),
+                }
+                for r in vrows
             ]
     except Exception as e:
         log.warning("dashboard_valbot falhou: %s", e)
@@ -4779,6 +4970,29 @@ def _download_gcs_json(gs_uri: str):
         return None
 
 
+def _load_result_raw(hash: str, gs_uri: str | None = None) -> dict | None:
+    """Carrega o result.json CRU do Gemini de um exame (sem montar shape).
+    Ordem: result.json local → gs_result_json (GCS). None se nenhum. Nunca levanta.
+    Usado pra surfaciar campos informativos do result que não viram coluna no DB
+    (ex.: `checklist_anexo_k`, `cobertura_integral`)."""
+    try:
+        local_result = ANALYSES_DIR / hash / "result.json"
+        if local_result.exists():
+            raw = json.loads(local_result.read_text() or "{}")
+            if isinstance(raw, dict):
+                return raw
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if gs_uri and str(gs_uri).startswith("gs://"):
+            raw = _download_gcs_json(str(gs_uri))
+            if isinstance(raw, dict):
+                return raw
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 def _response_from_result_json(hash: str, raw: dict):
     """Constrói o shape do frontend a partir de um result.json (Gemini/pipeline).
     Usa as infrações avaliadas/detectadas do JSON. None se sem infrações
@@ -5634,11 +5848,15 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
                 "6_cobertura": {},
                 "7_analise_detalhada": [],
                 "7b_comentarios_examinador": _read_training_annotations(hash_),
+                "7c_enquadramentos": [],
+                "7d_eventos_sem_enquadramento": [],
+                "7e_compliance": [],
                 "8_divergencia": {},
                 "9_comite_ia": {},
                 "10_parecer_auditor": {},
                 "11_decisao_supervisor": {},
                 "12_eventos_os": [],
+                "12b_linha_tempo": [],
                 "13_envio_unidade_gestora": {},
                 "14_integridade": {},
             },
@@ -5646,13 +5864,74 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     e = d.get("exam") or {}
     os_ = d.get("ordem_servico") or {}
     comite = d.get("laudo_comite") or {}
+    comite_meta = d.get("comite_meta") or {}
     parecer = d.get("parecer_auditor") or {}
     decisao = d.get("decisao_supervisor") or {}
-    infracoes = d.get("infracoes") or []
+    # Converte as infrações cruas (exam_infractions: timestamp_s numérico, regra_id,
+    # cameras[]) pro shape que o frontend espera (timestamp_inicio "mm:ss", id,
+    # gravidade_label, cameras_fmt, confianca textual). Sem isso o timestamp (que o
+    # Gemini SEMPRE aponta e está salvo) e os demais campos apareciam "—".
+    _dur_infr = float((d.get("exam") or {}).get("duration_s") or 0)
+    infracoes = [
+        _infracao_from_db(i, item, _dur_infr) for i, item in enumerate(d.get("infracoes") or [])
+    ]
     eventos = d.get("os_eventos") or []
+    divergencia = d.get("divergencia") or {}
+    eventos_brutos = d.get("eventos") or []
+    enquadramentos = d.get("enquadramentos") or []
+    infracoes_oficiais = d.get("infracoes_oficiais") or []
+    compliance = d.get("compliance") or []
+    matriz_vigente = d.get("matriz_vigente") or {}
     # Comentários do examinador TechPrático (upload.json → training_annotations).
     _train_ann_pdf = _read_training_annotations(hash_)
+
+    # --- Fallbacks do BUG confirmado (ordem_servico VAZIA em prod) -------------
+    # resultado_oficial    ⇐ e.resultado_exame      (A/R/N do examinador presencial)
+    # resultado_calculado  ⇐ exam.resultado_calculado → derivar de e.aprovado
+    # pontuacao_oficial    ⇐ exam.pontuacao_oficial
+    # pontuacao_calculada  ⇐ exam.pontuacao_calculada → e.pontuacao_total
+    _aprov = e.get("aprovado")
+    _resultado_calc_derivado = None
+    if _aprov is True:
+        _resultado_calc_derivado = "A"
+    elif _aprov is False:
+        _resultado_calc_derivado = "R"
+    resultado_oficial = (
+        os_.get("resultado_oficial")
+        or divergencia.get("resultado_oficial")
+        or e.get("resultado_exame")
+    )
+    resultado_calculado = (
+        os_.get("resultado_calculado")
+        or divergencia.get("resultado_calculado")
+        or e.get("resultado_calculado")
+        or _resultado_calc_derivado
+    )
+    pontuacao_oficial = (
+        os_.get("pontuacao_oficial")
+        if os_.get("pontuacao_oficial") is not None
+        else (
+            divergencia.get("pontuacao_oficial")
+            if divergencia.get("pontuacao_oficial") is not None
+            else e.get("pontuacao_oficial")
+        )
+    )
+    pontuacao_calculada = (
+        os_.get("pontuacao_calculada")
+        if os_.get("pontuacao_calculada") is not None
+        else (
+            divergencia.get("pontuacao_calculada")
+            if divergencia.get("pontuacao_calculada") is not None
+            else (
+                e.get("pontuacao_calculada")
+                if e.get("pontuacao_calculada") is not None
+                else e.get("pontuacao_total")
+            )
+        )
+    )
+
     blocos = {
+        # 1 — IDENTIFICAÇÃO DO LAUDO
         "1_identificacao": {
             "hash": e.get("hash"),
             "external_id": e.get("external_id"),
@@ -5662,48 +5941,103 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "auto_escola": e.get("auto_escola"),
             "rubrica": "1020/2025",
             "criado_em": e.get("created_at"),
+            # Identificação do laudo (modelo §1)
+            "resolucao": "CONTRAN 1.020/2025",
+            "manual_mbedv": e.get("rubrica"),
+            "matriz_nacional": (matriz_vigente.get("versao") or e.get("matriz_versao")),
+            "matriz_descricao": matriz_vigente.get("descricao"),
+            "modelo_ia_principal": e.get("engine_model"),
+            "engine_backend": e.get("engine_backend"),
+            "engine_preset": e.get("engine_preset"),
+            "modelo_comite": comite_meta.get("comite_versao"),
+            "tempo_processamento_s": e.get("gemini_elapsed_s"),
+            "data_emissao": e.get("created_at"),
+            "data_hora_exame": e.get("data_hora_exame"),
         },
+        # 2 — SUMÁRIO EXECUTIVO + 3 (candidato)
         "2_candidato": {
             "nome": e.get("candidato_nome"),
             "cpf_mascarado": _mask_cpf(e.get("candidato_cpf")),
             "renach": e.get("renach"),
+            "processo": e.get("processo"),
+            "categoria": e.get("categoria"),
+            "tipo_exame": e.get("tipo_exame"),
         },
+        # 3 — EXAMINADOR
         "3_examinador": {
             "nome": e.get("examinador"),
+            "matricula": e.get("examinador_matricula"),
+            "eh_preposto": e.get("examinador_eh_preposto"),
             "comentarios_count": len(_train_ann_pdf),
         },
+        # 4 — RESULTADO OFICIAL (com fallbacks)
         "4_resultado_oficial": {
             "resultado_exame": e.get("resultado_exame"),
-            "resultado_oficial": os_.get("resultado_oficial"),
-            "pontuacao_oficial": os_.get("pontuacao_oficial"),
+            "resultado_oficial": resultado_oficial,
+            "pontuacao_oficial": pontuacao_oficial,
+            "houve_interrupcao": e.get("houve_interrupcao"),
+            "motivo_interrupcao": e.get("motivo_interrupcao"),
+            # GAP: nenhuma coluna registra quem lançou o resultado oficial.
+            "registrado_por": None,
+            "data_hora_exame": e.get("data_hora_exame"),
+            "anotacoes_tpa": _train_ann_pdf,
+            "infracoes_oficiais": infracoes_oficiais,
         },
+        # 5 — RESULTADO CALCULADO (com fallbacks)
         "5_resultado_calculado": {
             "aprovado": e.get("aprovado"),
-            "resultado_calculado": os_.get("resultado_calculado"),
+            "resultado_calculado": resultado_calculado,
             "pontuacao_total": e.get("pontuacao_total"),
-            "pontuacao_calculada": os_.get("pontuacao_calculada"),
+            "pontuacao_calculada": pontuacao_calculada,
+            "limite_normativo": _LIMITE_APROVACAO,
             "num_infracoes": e.get("num_infracoes"),
+            "infracoes_ia": len(infracoes),
+            "eventos_sem_enquadramento": sum(
+                1 for q in enquadramentos if q.get("enquadrado") is False
+            ),
+            "matriz_versao": e.get("matriz_versao"),
             "gate_rejected": e.get("gate_rejected"),
             "gate_motivo": e.get("gate_motivo"),
         },
+        # 6 — COBERTURA / camadas técnicas
         "6_cobertura": {
             "duration_s": e.get("duration_s"),
             "layout_confianca": e.get("layout_confianca"),
             "fabricante_provavel": e.get("fabricante_provavel"),
             "validator_veredito": e.get("validator_veredito"),
             "total_infracoes": len(infracoes),
+            "total_eventos_brutos": len(eventos_brutos),
+            "total_enquadramentos": len(enquadramentos),
         },
+        # 7 — DETALHAMENTO DAS INFRAÇÕES
         "7_analise_detalhada": infracoes,
         "7b_comentarios_examinador": _train_ann_pdf,
+        "7c_enquadramentos": enquadramentos,
+        "7d_eventos_sem_enquadramento": [q for q in enquadramentos if q.get("enquadrado") is False],
+        "7e_compliance": compliance,
+        # 8 — ANÁLISE DE DIVERGÊNCIA (motor de comparação) + OS
         "8_divergencia": {
-            "tipo_divergencia": os_.get("tipo_divergencia"),
+            # OS (quando existe)
+            "tipo_divergencia": (
+                divergencia.get("tipo_divergencia") or os_.get("tipo_divergencia")
+            ),
             "status_os": os_.get("status"),
             "numero_os": os_.get("numero_os"),
+            # Motor de comparação (exam_divergencias)
+            "subtipos_associados": divergencia.get("subtipos_associados"),
+            "concorda_resultado": divergencia.get("concorda_resultado"),
+            "concorda_pontuacao": divergencia.get("concorda_pontuacao"),
+            "concorda_infracoes": divergencia.get("concorda_infracoes"),
+            "evidencia_suficiente": divergencia.get("evidencia_suficiente"),
+            "encaminhamento": divergencia.get("encaminhamento"),
+            "detalhes": divergencia.get("detalhes"),
         },
-        "9_comite_ia": comite,
+        "9_comite_ia": {**comite, **comite_meta},
         "10_parecer_auditor": parecer,
         "11_decisao_supervisor": decisao,
+        # 12 — LINHA DO TEMPO: trilha da OS + cronologia de eventos brutos
         "12_eventos_os": eventos,
+        "12b_linha_tempo": eventos_brutos,
         "13_envio_unidade_gestora": {
             "laudo_enviado_em": e.get("laudo_enviado_em"),
             "laudo_envio_status": e.get("laudo_envio_status"),
@@ -5717,6 +6051,16 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "gs_laudo_pdf": e.get("gs_laudo_pdf"),
         },
     }
+    # Checklist técnico Anexo K (12 itens) — informativo, emitido pelo Gemini no
+    # result_json (sem coluna dedicada no DB). Surfaciado em 6_cobertura. Best-
+    # effort: qualquer falha mantém o bloco sem o checklist (frontend mostra "—").
+    try:
+        _res = _load_result_raw(hash_, e.get("gs_result_json"))
+        _chk = (_res or {}).get("checklist_anexo_k")
+        if isinstance(_chk, list) and _chk:
+            blocos["6_cobertura"]["checklist_anexo_k"] = _chk
+    except Exception:  # noqa: BLE001
+        pass
     laudo = {
         "exame_hash": hash_,
         "laudo_versao": "laudo/2.0",
@@ -6247,6 +6591,138 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("laudo v2 bloco comparativo falhou %s: %s", hash[:12], e)
 
+    # ===== cadeia de decisão — os 5 pareceres ===============================
+    # Reúne num só lugar, na ordem da escalação, os CINCO contextos de veredito do
+    # exame: ① Examinador, ② Auditor Val (IA), ③ Comitê de IA, ④ Auditor (humano),
+    # ⑤ Supervisor (decisão final). Comitê/Parecer/Decisão só existem no DB, por
+    # isso reusamos _laudo_blocos_14_2 (mesma fonte do /laudo-json → web e PDF
+    # ficam coerentes; resiliente: DB off → blocos vazios → pareceres "pendentes").
+    try:
+        _b14 = {}
+        try:
+            _b14 = (_laudo_blocos_14_2(hash) or {}).get("blocos") or {}
+        except Exception:  # noqa: BLE001
+            _b14 = {}
+
+        def _blk(nome: str) -> dict:
+            d = _b14.get(nome)
+            return d if isinstance(d, dict) else {}
+
+        def _first(d: dict, *keys):
+            for k in keys:
+                v = d.get(k)
+                if v not in (None, ""):
+                    return v
+            return ""
+
+        def _ar(v) -> tuple[str, str]:
+            """(rótulo oficial, classe css) — terminologia travada APROVADO/REPROVADO."""
+            s = str(v).strip().upper()
+            if v is True or s.startswith("APRO") or s in ("A", "APTO"):
+                return "APROVADO", "ap"
+            if v is False or s.startswith("REPRO") or s in ("R", "INAPTO"):
+                return "REPROVADO", "rp"
+            return "—", "pend"
+
+        def _tem(d: dict) -> bool:
+            return any(v not in (None, "", []) for v in d.values())
+
+        # ① Examinador
+        _o = _blk("4_resultado_oficial")
+        _ex_lbl, _ex_cls = _ar(_first(_o, "resultado_oficial", "resultado_exame"))
+        _ex_resp = _first(_blk("3_examinador"), "nome") or "Examinador"
+        _ex_pont = _first(_o, "pontuacao_oficial")
+        _ex_sint = (
+            f"Pontuação oficial: {_ex_pont}"
+            if str(_ex_pont)
+            else "Decisão presencial (TechPrático)"
+        )
+
+        # ② Auditor Val (IA)
+        _c = _blk("5_resultado_calculado")
+        _ia_lbl, _ia_cls = _ar(_first(_c, "resultado_calculado", "aprovado"))
+        _ia_resp = (
+            _first(_blk("1_identificacao"), "modelo_ia_principal", "engine_backend")
+            or "Motor automático"
+        )
+        _ia_pont = _first(_c, "pontuacao_calculada", "pontuacao_total")
+        _ia_sint = (
+            f"Pontuação calculada: {_ia_pont}" if str(_ia_pont) else "Resultado calculado pela IA"
+        )
+
+        # ③ Comitê de IA (recomendação, não veredito final)
+        _cm = _blk("9_comite_ia")
+        _cm_concl = str(_first(_cm, "conclusao_comite", "conclusao"))
+        _cm_map = {
+            "concorda_com_examinador": "Concorda com o examinador",
+            "manter_divergencia_com_fundamentacao": "Mantém divergência (fundamentada)",
+        }
+        _cm_lbl = _cm_map.get(_cm_concl, _cm_concl)
+        _cm_rec = str(_first(_cm, "recomendacao_para_auditor", "recomendacao"))
+        if _tem(_cm):
+            _cm_vere, _cm_cls = (_cm_lbl or "—"), ""
+            _cm_sint = _cm_rec or "Refino multi-modelo (recomendação, não veredito final)"
+        else:
+            _cm_vere, _cm_cls = "Não acionado", "pend"
+            _cm_sint = "Sem divergência a refinar."
+
+        # ④ Auditor (humano)
+        _p = _blk("10_parecer_auditor")
+        _pa_fin_lbl, _pa_fin_cls = _ar(_first(_p, "resultado_final"))
+        _pa_dec = str(_first(_p, "decisao"))
+        _pa_dec_lbl = {"concorda": "Concorda com a IA", "discorda": "Diverge da IA"}.get(
+            _pa_dec, _pa_dec
+        )
+        if _tem(_p):
+            _pa_vere, _pa_cls = (
+                (_pa_fin_lbl, _pa_fin_cls) if _pa_fin_lbl != "—" else (_pa_dec_lbl or "—", "")
+            )
+            _pa_resp = str(_first(_p, "auditor")) or "Auditor responsável"
+            _pa_sint = str(_first(_p, "justificativa")) or "Parecer registrado."
+        else:
+            _pa_vere, _pa_cls, _pa_resp = "—", "pend", "Auditor responsável"
+            _pa_sint = "Aguardando parecer do auditor."
+
+        # ⑤ Supervisor (decisão final)
+        _d = _blk("11_decisao_supervisor")
+        _ds_dec = str(_first(_d, "decisao_final", "decisao"))
+        _ds_lbl = {"homologar": "Homologado", "reformar": "Reformado"}.get(_ds_dec, _ds_dec)
+        if _tem(_d):
+            _ds_vere = _ds_lbl or "—"
+            _ds_cls = "ap" if _ds_dec == "homologar" else ("rp" if _ds_dec == "reformar" else "")
+            _ds_resp = str(_first(_d, "supervisor", "decidido_por")) or "Supervisor"
+            _ds_sint = str(_first(_d, "justificativa")) or "Decisão registrada."
+        else:
+            _ds_vere, _ds_cls, _ds_resp = "—", "pend", "Supervisor"
+            _ds_sint = "Aguardando decisão do supervisor."
+
+        _cadeia = [
+            ("①", "Examinador", _ex_lbl, _ex_cls, _ex_resp, _ex_sint),
+            ("②", "Auditor Val (IA)", _ia_lbl, _ia_cls, _ia_resp, _ia_sint),
+            ("③", "Comitê de IA", _cm_vere, _cm_cls, "Refino multi-modelo", _cm_sint),
+            ("④", "Auditor", _pa_vere, _pa_cls, _pa_resp, _pa_sint),
+            ("⑤", "Supervisor", _ds_vere, _ds_cls, _ds_resp, _ds_sint),
+        ]
+        _rows = "".join(
+            f'<tr><td style="text-align:center">{_n}</td>'
+            f"<td>{_esc_v2(_rot)}</td>"
+            f'<td class="cad-v {_cls}">{_esc_v2(_vere)}</td>'
+            f"<td>{_esc_v2(_resp)}</td><td>{_esc_v2(_sint)}</td></tr>"
+            for (_n, _rot, _vere, _cls, _resp, _sint) in _cadeia
+        )
+        blocos.append(f"""
+    <h2>Cadeia de Decisão — 5 Pareceres</h2>
+    <p class="note">Os cinco contextos de veredito sobre este exame, na ordem da escalação — do
+    examinador presencial à decisão final do supervisor. Cada parecer é registrado de forma
+    independente e preservado para auditoria.</p>
+    <table class="cad">
+      <tr><th style="width:5%">#</th><th style="width:19%">Parecer</th><th style="width:17%">Veredito</th>
+          <th style="width:22%">Responsável / Fonte</th><th>Síntese</th></tr>
+      {_rows}
+    </table>""")
+    except Exception as e:  # noqa: BLE001
+        log.warning("laudo v2 bloco cadeia 5 pareceres falhou %s: %s", hash[:12], e)
+
     # ===== infrações detectadas pelo ValBot (Gemini) ========================
     try:
         infl = (
@@ -6381,6 +6857,11 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     td.big.ok {{ color:#0b7a44; }} td.big.div {{ color:#b42318; }}
     table.inf th {{ background:#f1f6f3; font-size:9.5px; }}
     table.inf td {{ font-size:9.5px; }}
+    table.cad th {{ background:#f1f6f3; font-size:9.5px; color:#33403a; }}
+    table.cad td {{ font-size:9.5px; }}
+    td.cad-v {{ font-weight:700; }}
+    td.cad-v.ap {{ color:#0b7a44; }} td.cad-v.rp {{ color:#b42318; }}
+    td.cad-v.pend {{ color:#999; font-weight:400; font-style:italic; }}
     .evid {{ font-size:9px; color:#3a4540; }} .bl {{ color:#7a857f; font-style:italic; }}
     .mono {{ font-family:'Courier New',monospace; font-size:9px; }}
     .badge {{ display:inline-block; padding:1px 6px; border-radius:3px; font-size:8.5px; font-weight:700; color:#fff; }}
@@ -6909,6 +7390,10 @@ class _DecisaoSupervisorIn(BaseModel):
     decisao: str = Field(..., description="homologar | reformar")
     justificativa: str | None = None
     resultado_final: str | None = Field(None, description="aprovado | reprovado")
+    homologar_conduta: bool = Field(
+        False,
+        description="Mantém (true) o encaminhamento da conduta da examinadora ao DETRAN (Bloco 9).",
+    )
 
 
 @app.post("/api/os/{os_id}/decisao")
@@ -6933,6 +7418,7 @@ def post_decisao_supervisor(
         decisao=data.decisao,
         resultado_final=data.resultado_final,
         justificativa=data.justificativa,
+        homologar_conduta=data.homologar_conduta,
     )
     if saved is None:
         return {
@@ -6941,6 +7427,7 @@ def post_decisao_supervisor(
             "decisao": data.decisao,
             "resultado_final": data.resultado_final,
             "justificativa": data.justificativa,
+            "homologar_conduta": data.homologar_conduta,
             "status_os": "decisao_final",
             "source": "mock",
         }

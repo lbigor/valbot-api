@@ -1,0 +1,88 @@
+name: CD Backend
+
+# Deploy versionado do backend (valbot-api) na VM valbot-prod.
+#   push em `main` que toque server.py/db.py, backend/** ou migrations/** → deploy
+#   workflow_dispatch                                                     → manual
+#
+# Autentica via Workload Identity Federation keyless (mesma config do valbot-web,
+# projeto valbot-497920) — sem chave JSON. Atualiza os arquivos montados via
+# docker-compose.override.yml em /opt/valbot-deploy/customizations (server.py,
+# db.py E o dir backend/ inteiro), aplica as migrations idempotentes da matriz e
+# reinicia o container. ⚠️ o restart reinicia o uvicorn → /api/exams/init-upload
+# fica indisponível por alguns segundos. Backups ficam como *.bak-cd-<ts>.
+#
+# Médio prazo: quando o backend rodar a imagem com o código embutido (API-only),
+# este CD passa a fazer pull da imagem em vez do swap dos arquivos soltos.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tooling/api_stub/server.py"
+      - "tooling/api_stub/db.py"
+      - "backend/**"
+      - "migrations/**"
+  workflow_dispatch:
+
+concurrency:
+  group: cd-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # WIF
+    env:
+      VM: ${{ secrets.DEPLOY_VM }}
+      ZONE: ${{ secrets.DEPLOY_ZONE }}
+      CUST: /opt/valbot-deploy/customizations
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud (WIF keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # Tudo numa única conexão SSH (o gcloud compute scp via IAP pendura neste
+      # ambiente; ssh funciona). A VM clona a própria main e troca os arquivos.
+      - name: Deploy (clone main na VM + backup + troca + migrations + restart)
+        run: |
+          gcloud compute ssh "${VM}" --zone "${ZONE}" --tunnel-through-iap --quiet --command '
+            set -e
+            CUST='"${CUST}"'
+            TS=$(date +%Y%m%d_%H%M%S)
+            cd /tmp && rm -rf va-cd && git clone --depth 1 -q https://github.com/lbigor/valbot-api.git va-cd
+            # backup (server.py, db.py e o dir backend/ montado via override)
+            sudo cp "$CUST/server.py" "$CUST/server.py.bak-cd-$TS"
+            sudo cp "$CUST/db.py" "$CUST/db.py.bak-cd-$TS"
+            sudo cp -a "$CUST/backend" "$CUST/backend.bak-cd-$TS"
+            # troca server.py + db.py
+            sudo cp /tmp/va-cd/tooling/api_stub/server.py "$CUST/server.py"
+            sudo cp /tmp/va-cd/tooling/api_stub/db.py "$CUST/db.py"
+            # sincroniza backend/ (prompt_builder, seed_mbedv, engines, comite...) da main.
+            # Overlay (sem --delete) p/ não remover eventuais arquivos prod-only.
+            sudo cp -a /tmp/va-cd/backend/. "$CUST/backend/"
+            # migrations idempotentes (025 add coluna, 026 backfill, 027 view canônica,
+            # 028 sinalizadores+indicadores na view).
+            # Aplicadas explicitamente (ainda sem migration-runner com tracking table).
+            for m in 025_exam_rules_descricao 026_exam_rules_descricao_data 027_view_canonica_resultado_oficial 028_view_sinalizadores_indicadores; do
+              echo "migration $m"
+              sudo docker exec -i valbot-postgres psql -U valbot -d valbot -v ON_ERROR_STOP=1 -f - < "/tmp/va-cd/migrations/$m.sql"
+            done
+            sudo docker restart valbot-api >/dev/null
+            echo "deploy backend ok ($TS)"
+          '
+
+      - name: Verifica health
+        run: |
+          sleep 12
+          curl -fsS --max-time 20 https://valbot.com.br/api/health || (echo "health não respondeu" && exit 1)
