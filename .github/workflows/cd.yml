@@ -83,6 +83,18 @@ jobs:
           '
 
       - name: Verifica health
+        # Polling com retry: após o restart, o uvicorn + server.py + migrations
+        # levam mais de 12s para voltar — o proxy responde 502 nesse meio-tempo.
+        # Um curl único dava falso negativo (deploy ok, workflow vermelho). Aqui
+        # tentamos por ~120s e só falhamos se a API realmente não voltar.
         run: |
-          sleep 12
-          curl -fsS --max-time 20 https://valbot.com.br/api/health || (echo "health não respondeu" && exit 1)
+          for i in $(seq 1 24); do
+            if curl -fsS --max-time 10 https://valbot.com.br/api/health; then
+              echo "health ok (tentativa $i)"
+              exit 0
+            fi
+            echo "tentativa $i: API ainda subindo, aguardando 5s…"
+            sleep 5
+          done
+          echo "health não respondeu após ~120s"
+          exit 1
