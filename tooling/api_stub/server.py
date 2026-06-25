@@ -7192,6 +7192,9 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             # nível produz SÓ A/R; 'aguardando' = pendente (não é veredito). As
             # relações são DERIVADAS da comparação dos A/R → None enquanto pendente.
             "cadeia_resultado": {
+                # Sem dossiê não há veredito final publicado (mesmo shape do caminho real).
+                "veredito_final": None,
+                "veredito_final_origem": None,
                 "niveis": [
                     {
                         "ordem": 1,
@@ -7374,16 +7377,22 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     # Bloco 10: veredito do auditor = resultado_final (já 'aprovado'/'reprovado').
     _veredito_auditor = _res_label(parecer.get("resultado_final"))
 
-    # Bloco 11: veredito do supervisor. 'homologar' segue o parecer do auditor;
-    # 'reformar' sobrepõe (o oposto do parecer). resultado_final explícito tem
-    # precedência quando presente.
+    # Bloco 11: veredito do supervisor. FONTE PRIMÁRIA = resultado_final EXPLÍCITO
+    # gravado em supervisor_decisoes (APROVADO/REPROVADO escolhido na tela). Esse
+    # valor SEMPRE precede — é o que o supervisor de fato decidiu, inclusive num
+    # 'reformar' que sobrepõe o auditor. A derivação por inversão binária do parecer
+    # ('reformar' ⇒ oposto do auditor) fica só como FALLBACK legado, para as linhas
+    # antigas sem a coluna materializada (resultado_final NULL).
     _dec_sup = str(decisao.get("decisao") or "").strip().lower()
     _sup_final_explicit = _res_label(decisao.get("resultado_final"))
     if _sup_final_explicit is not None:
         _veredito_supervisor = _sup_final_explicit
     elif _dec_sup.startswith("homolog"):
+        # Legado (sem A/R cravado): homologar mantém o parecer do auditor.
         _veredito_supervisor = _veredito_auditor
     elif _dec_sup.startswith("reform"):
+        # Legado (sem A/R cravado): reformar inverte o auditor. Frágil (quebra p/
+        # INAPTO) — só sobrevive enquanto houver linhas antigas com resultado_final NULL.
         _veredito_supervisor = (
             "REPROVADO"
             if _veredito_auditor == "APROVADO"
@@ -7580,7 +7589,40 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     _n3 = _ar_ou_aguardando(comite.get("resultado_comite"))
     _n4 = _ar_ou_aguardando(parecer.get("resultado_final"))
     _n5 = _ar_ou_aguardando(_veredito_supervisor)
+    # --- VEREDITO FINAL PUBLICADO (capa do laudo) -------------------------------
+    # Precedência dura (Igor/QA do Supervisor): ⑤ Supervisor (quando decidiu) >
+    # ④ Auditor > ③ Comitê > consenso ①=② (examinador e IA concordam). Usa o A/R
+    # EXPLÍCITO de cada nível — nunca inversão binária. INAPTO PARA AVALIAÇÃO é
+    # TERMINAL e SÓ da IA (gate de visibilidade/qualidade): não é veredito A/R e o
+    # supervisor NÃO o sobrepõe — tem precedência sobre toda a cadeia.
+    _consenso_ar = (
+        _res_label(resultado_oficial)
+        if _res_label(resultado_oficial) is not None
+        and _res_label(resultado_oficial) == _res_label(resultado_calculado)
+        else None
+    )
+    if estado_fluxo == "inapto_avaliacao":
+        _veredito_final = "INAPTO PARA AVALIAÇÃO"
+        _veredito_final_origem = "ia_gate"
+    elif _veredito_supervisor is not None:
+        _veredito_final = _veredito_supervisor
+        _veredito_final_origem = "supervisor"
+    elif _veredito_auditor is not None:
+        _veredito_final = _veredito_auditor
+        _veredito_final_origem = "auditor"
+    elif _veredito_comite is not None:
+        _veredito_final = _veredito_comite
+        _veredito_final_origem = "comite"
+    elif _consenso_ar is not None:
+        _veredito_final = _consenso_ar
+        _veredito_final_origem = "consenso_examinador_ia"
+    else:
+        _veredito_final = None
+        _veredito_final_origem = None
     cadeia_resultado = {
+        # Veredito FINAL publicado + de qual nível ele veio (precedência acima).
+        "veredito_final": _veredito_final,
+        "veredito_final_origem": _veredito_final_origem,
         "niveis": [
             {
                 "ordem": 1,
@@ -8168,10 +8210,17 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     # ficam coerentes; resiliente: DB off → blocos vazios → pareceres "pendentes").
     try:
         _b14 = {}
+        _cadeia_rd = {}
         try:
-            _b14 = (_laudo_blocos_14_2(hash) or {}).get("blocos") or {}
+            _laudo_full = _laudo_blocos_14_2(hash) or {}
+            _b14 = _laudo_full.get("blocos") or {}
+            # cadeia_resultado.veredito_final = veredito FINAL publicado (precedência
+            # Supervisor > Auditor > Comitê > consenso; INAPTO terminal). Mesma fonte
+            # do /laudo-json → PDF e web ficam coerentes.
+            _cadeia_rd = _laudo_full.get("cadeia_resultado") or {}
         except Exception:  # noqa: BLE001
             _b14 = {}
+            _cadeia_rd = {}
 
         def _blk(nome: str) -> dict:
             d = _b14.get(nome)
@@ -8279,6 +8328,40 @@ def _laudo_pdf_v2_html(hash: str) -> str:
             f"<td>{_esc_v2(_resp)}</td><td>{_esc_v2(_sint)}</td></tr>"
             for (_n, _rot, _vere, _cls, _resp, _sint) in _cadeia
         )
+        # Veredito FINAL publicado — precedência Supervisor > Auditor > Comitê >
+        # consenso ①=②; INAPTO PARA AVALIAÇÃO terminal (gate IA). Derivado em
+        # _laudo_blocos_14_2 (cadeia_resultado.veredito_final) — fonte única p/ web e PDF.
+        _vf = _cadeia_rd.get("veredito_final") if isinstance(_cadeia_rd, dict) else None
+        _vf_origem = (
+            _cadeia_rd.get("veredito_final_origem") if isinstance(_cadeia_rd, dict) else None
+        )
+        _vf_origem_lbl = {
+            "supervisor": "Decisão final do Supervisor",
+            "auditor": "Parecer do Auditor",
+            "comite": "Comitê de IA",
+            "consenso_examinador_ia": "Consenso Examinador × IA",
+            "ia_gate": "Gate da IA (visibilidade/qualidade)",
+        }.get(str(_vf_origem), "—")
+        if _vf:
+            _vf_cls = (
+                "ap"
+                if str(_vf).strip().upper().startswith("APRO")
+                else ("rp" if str(_vf).strip().upper().startswith("REPRO") else "pend")
+            )
+            _veredito_final_html = f"""
+    <table class="cmp" style="margin-top:6px">
+      <tr><th>Veredito Final Publicado</th><th>Origem</th></tr>
+      <tr>
+        <td class="big {_vf_cls}">{_esc_v2(_vf)}</td>
+        <td>{_esc_v2(_vf_origem_lbl)}</td>
+      </tr>
+    </table>
+    <p class="note">Veredito oficial do laudo, por precedência: decisão do Supervisor (quando
+    houver) sobre o parecer do Auditor, sobre o Comitê de IA, sobre o consenso Examinador × IA.
+    "INAPTO PARA AVALIAÇÃO" é terminal e emitido pela IA (gate de visibilidade), não sobreposto
+    por nível humano.</p>"""
+        else:
+            _veredito_final_html = ""
         blocos.append(f"""
     <h2>Cadeia de Decisão — 5 Pareceres</h2>
     <p class="note">Os cinco contextos de veredito sobre este exame, na ordem da escalação — do
@@ -8288,7 +8371,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
       <tr><th style="width:5%">#</th><th style="width:19%">Parecer</th><th style="width:17%">Veredito</th>
           <th style="width:22%">Responsável / Fonte</th><th>Síntese</th></tr>
       {_rows}
-    </table>""")
+    </table>{_veredito_final_html}""")
     except Exception as e:  # noqa: BLE001
         log.warning("laudo v2 bloco cadeia 5 pareceres falhou %s: %s", hash[:12], e)
 
@@ -8998,6 +9081,17 @@ def post_decisao_supervisor(
     # Sem isso o hash de 64 chars era comparado contra a PK UUID → nunca casava e
     # a decisão caía no eco-mock (nada persistido). Fallback: o próprio identificador.
     os_real_id = db.resolver_os_id(os_id) or os_id
+    # GUARD — OS já encerrada (laudo oficial publicado) NÃO pode ser re-encerrada
+    # nem sobrescrita silenciosamente (sem flag de reabertura por ora). Recusa com
+    # 409 em vez de reabrir/reescrever o veredito final já publicado. resolver_os_id
+    # acima materializa OS faltante (GET-OR-CREATE) → uma OS recém-criada nunca está
+    # encerrada; só dispara para uma OS de fato concluída.
+    if db.os_ja_encerrada(os_real_id):
+        raise HTTPException(
+            409,
+            "OS já encerrada — o laudo oficial foi publicado e não pode ser "
+            "sobrescrito. Reabertura não é suportada.",
+        )
     saved = db.save_supervisor_decisao(
         os_real_id,
         supervisor=supervisor,
@@ -9007,6 +9101,8 @@ def post_decisao_supervisor(
         homologar_conduta=data.homologar_conduta,
     )
     if saved is None:
+        # Eco-mock (DB off ou OS inexistente): NÃO mente sucesso. Sem persistência a
+        # OS não encerrou → não emitimos stage:'concluido' nem status_os:'decisao_final'.
         return {
             "ok": False,
             "os_id": os_real_id,
@@ -9015,8 +9111,6 @@ def post_decisao_supervisor(
             "resultado_final": data.resultado_final,
             "justificativa": data.justificativa,
             "homologar_conduta": data.homologar_conduta,
-            "status_os": "decisao_final",
-            "stage": "concluido",
             "source": "mock",
         }
     # OS encerrada (encerrada_em setado) ⇒ v_exams_overview rende stage='concluido'

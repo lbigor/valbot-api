@@ -2060,7 +2060,7 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                     srow = c.execute(
                         """
                         SELECT supervisor_email, decisao_final, concorda_auditor,
-                               justificativa, created_at
+                               resultado_final, justificativa, created_at
                         FROM supervisor_decisoes WHERE os_id = %s
                         """,
                         (os_id,),
@@ -2070,6 +2070,9 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                             "supervisor",
                             "decisao",
                             "concorda_auditor",
+                            # Veredito final EXPLÍCITO do supervisor (APROVADO/REPROVADO)
+                            # — fonte do veredito publicado no laudo (precede auditor).
+                            "resultado_final",
                             "justificativa",
                             "created_at",
                         ]
@@ -2711,6 +2714,28 @@ def list_cron_runs(job_id: str | None = None, limit: int = 50) -> list[dict] | N
 # --- 5. Supervisor — decisão final sobre a OS (supervisor_decisoes — 017) ----
 
 
+def _canon_resultado(v) -> str | None:
+    """Normaliza o veredito do supervisor → 'APROVADO' | 'REPROVADO' | None.
+
+    Valores canônicos gravados na coluna supervisor_decisoes.resultado_final
+    (a coluna é VARCHAR(16); 'APROVADO'/'REPROVADO' cabem). Aceita 'A'/'R',
+    'aprovado'/'reprovado' (com/sem caixa/acento) e bool. Desconhecido → None
+    (linha fica com NULL — o laudo cai no fallback de derivação legado).
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return "APROVADO" if v else "REPROVADO"
+    s = str(v).strip().lower()
+    if not s:
+        return None
+    if s == "a" or s.startswith("aprov"):
+        return "APROVADO"
+    if s == "r" or s.startswith("reprov") or s.startswith("repr"):
+        return "REPROVADO"
+    return None
+
+
 def save_supervisor_decisao(
     os_id: str,
     *,
@@ -2755,6 +2780,10 @@ def save_supervisor_decisao(
             ).fetchone()
             tem_parecer = prow is not None
             concorda_auditor = bool(tem_parecer and decisao == "homologar")
+            # Veredito final EXPLÍCITO do supervisor (A/R) → coluna resultado_final
+            # (canônico APROVADO/REPROVADO). É a FONTE do veredito publicado no laudo
+            # — sem isso o laudo derivava por inversão binária do auditor (frágil).
+            resultado_final_canon = _canon_resultado(resultado_final)
             # supervisor_decisoes NÃO tem UNIQUE(os_id) no schema de prod (só PK em
             # id) → ON CONFLICT(os_id) é inválido. Upsert manual: apaga a decisão
             # anterior da OS e insere a nova. justificativa é NOT NULL → ''.
@@ -2763,8 +2792,8 @@ def save_supervisor_decisao(
                 """
                 INSERT INTO supervisor_decisoes
                     (os_id, supervisor_email, decisao_final, concorda_auditor,
-                     justificativa, homologar_conduta)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                     resultado_final, justificativa, homologar_conduta)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id::text, created_at
                 """,
                 (
@@ -2772,6 +2801,7 @@ def save_supervisor_decisao(
                     supervisor,
                     decisao,
                     concorda_auditor,
+                    resultado_final_canon,
                     justificativa or "",
                     bool(homologar_conduta),
                 ),
@@ -2814,7 +2844,7 @@ def save_supervisor_decisao(
                 "os_id": os_id,
                 "supervisor": supervisor,
                 "decisao": decisao,
-                "resultado_final": resultado_final,
+                "resultado_final": resultado_final_canon,
                 "concorda_auditor": concorda_auditor,
                 "homologar_conduta": bool(homologar_conduta),
                 "justificativa": justificativa,
@@ -2824,6 +2854,30 @@ def save_supervisor_decisao(
     except Exception as e:
         log.exception("db.save_supervisor_decisao falhou os=%s: %s", os_id, e)
         return None
+
+
+def os_ja_encerrada(os_id: str) -> bool:
+    """True se a OS já está encerrada (encerrada_em IS NOT NULL).
+
+    Guard do POST /api/os/{id}/decisao: uma OS encerrada teve seu laudo oficial
+    publicado e NÃO pode ser re-encerrada/sobrescrita silenciosamente (sem flag de
+    reabertura). DB off, OS inexistente ou erro → False (não bloqueia o eco-mock /
+    a materialização normal). Nunca lança.
+    """
+    if _disabled() or not os_id:
+        return False
+    try:
+        with _conn() as c:
+            if c is None:
+                return False
+            row = c.execute(
+                "SELECT encerrada_em FROM ordens_servico WHERE id = %s",
+                (os_id,),
+            ).fetchone()
+            return bool(row and row[0] is not None)
+    except Exception as e:
+        log.warning("db.os_ja_encerrada falhou os=%s: %s", os_id, e)
+        return False
 
 
 def get_supervisor_decisao(os_id: str) -> dict | None:
@@ -2837,7 +2891,8 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
             row = c.execute(
                 """
                 SELECT id::text, os_id::text, supervisor_email, decisao_final,
-                       concorda_auditor, homologar_conduta, justificativa, created_at
+                       concorda_auditor, resultado_final, homologar_conduta,
+                       justificativa, created_at
                 FROM supervisor_decisoes WHERE os_id = %s
                 """,
                 (os_id,),
@@ -2850,6 +2905,7 @@ def get_supervisor_decisao(os_id: str) -> dict | None:
                 "supervisor",
                 "decisao",
                 "concorda_auditor",
+                "resultado_final",
                 "homologar_conduta",
                 "justificativa",
                 "created_at",
