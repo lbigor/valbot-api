@@ -11,8 +11,16 @@ Princípios inegociáveis (spec §10.1):
   • O Comitê NÃO reverte a divergência — produz laudo para o humano.
   • Rigor acima de velocidade.
 
-Quando o Vertex não está disponível (dev/teste), cai num modo determinístico
-que produz um laudo coerente a partir dos dados já presentes, sem chamar a IA.
+REGRA DURA (Igor) — NÃO existe "modo determinístico". O Comitê (③) só tem valor
+se rodar com o modelo REAL (``gemini-2.5-pro``) e der uma SEGUNDA opinião
+INDEPENDENTE. Um fallback sem IA apenas reproduziria o veredito da 1ª análise
+(②) — uma FALSA 2ª opinião que CONTAMINA o % de discordância do Comitê (fazia
+% Comitê == % Auditor Val). Por isso, quando a IA NÃO está disponível
+(quota 429 / timeout / erro de rede / resposta vazia), o Comitê NÃO grava laudo:
+levanta ``ComiteSemIAError`` para o caller RE-TENTAR (backoff). O exame fica
+PENDENTE de comitê (stage 'comite') até a IA responder DE FATO — o que é correto.
+NUNCA fabricar ``resultado_comite``/``conclusao_comite`` sem o modelo ter
+respondido com fundamentação real.
 """
 
 from __future__ import annotations
@@ -36,6 +44,18 @@ from backend.models import (
 )
 
 log = logging.getLogger("valbot.comite")
+
+
+class ComiteSemIAError(RuntimeError):
+    """O Comitê não conseguiu uma resposta REAL do modelo (``gemini-2.5-pro``).
+
+    Levantada quando a IA está indisponível — Comitê desabilitado, sem infrações
+    para julgar, quota 429, timeout, erro de rede ou resposta vazia/ilegível. NÃO
+    é um laudo: sinaliza ao caller que deve RE-TENTAR (backoff) e deixar o exame
+    PENDENTE de comitê. NUNCA fabricar ``resultado_comite``/``conclusao_comite``
+    sem o modelo ter respondido de fato — um laudo "determinístico" só reproduz o
+    veredito da 1ª análise (②) e contamina o % de discordância do Comitê.
+    """
 
 
 def _derivar_relacao_comite(
@@ -216,72 +236,6 @@ DEVOLVA SOMENTE JSON neste formato:
   "resultado_comite": "APROVADO | REPROVADO"
 }}
 """
-
-
-def _laudo_deterministico(
-    exame_id: str,
-    comparacao: Comparacao,
-    deteccao: SaidaDeteccao,
-    tempo: float,
-) -> LaudoComite:
-    """Laudo sem IA — usado em dev/teste ou quando o Vertex falha.
-
-    Sintetiza causas a partir da divergência e propaga comentários do
-    examinador já captados pelo Motor de Detecção.
-    """
-    causas: list[CausaIdentificada] = []
-    verifs: list[VerificacaoComite] = []
-    if comparacao.tipo_divergencia != TipoDivergencia.SEM_DIVERGENCIA:
-        causas.append(
-            CausaIdentificada(
-                causa=f"Divergência {comparacao.tipo_divergencia.value} entre cálculo e oficial",
-                evidencia=json.dumps(comparacao.detalhes, ensure_ascii=False),
-                interpretacao_normativa="Requer verificação humana dos segmentos divergentes",
-                confianca_causa=0.5,
-            )
-        )
-
-    comentarios = [
-        ComentarioExaminador(
-            timestamp_audio=c.timestamp_audio_seg,
-            transcricao=c.transcricao or "",
-            classificacao=c.classificacao or "comentario_potencialmente_inadequado",
-        )
-        for c in deteccao.comentarios_examinador
-    ]
-
-    # Sem IA não há reavaliação própria, mas o Comitê (③, máquina fria) DEVE
-    # mesmo assim cravar A/R — NUNCA fica NULL/"aguardando" (bug das 74 OS). Sem
-    # divergência, espelha o examinador; em divergência, deriva o A/R da
-    # pontuação calculada / veredito da IA crua / examinador (ver helper).
-    res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
-    resultado_comite = _derivar_resultado_comite(
-        _parse_resultado_comite(res_examinador)
-        if comparacao.tipo_divergencia == TipoDivergencia.SEM_DIVERGENCIA
-        else None,
-        comparacao,
-    )
-    # conclusao_comite e tipo_divergencia_pos_comite são DERIVADOS do A/R do Comitê
-    # vs o A/R do examinador — nunca cravados de forma a contradizer o veredito.
-    conclusao, tipo_pos = _derivar_relacao_comite(
-        resultado_comite, res_examinador, comparacao.tipo_divergencia
-    )
-
-    return LaudoComite(
-        exame_id=exame_id,
-        comite_versao=settings.comite_versao + "+deterministico",
-        tempo_processamento_seg=round(tempo, 2),
-        tipo_divergencia_analisada=comparacao.tipo_divergencia,
-        tipo_divergencia_pos_comite=tipo_pos,
-        causas_identificadas=causas,
-        verificacoes_executadas=verifs,
-        comentarios_examinador_detectados=comentarios,
-        recomendacao_para_auditor=(
-            "Revisar os segmentos das infrações apontadas; conferir exceções do MBEDV."
-        ),
-        conclusao_comite=conclusao,
-        resultado_comite=resultado_comite,
-    )
 
 
 def _tem_art_208(infracoes: list[dict]) -> bool:
@@ -473,16 +427,28 @@ def revisar(
     MBEDV, o MOTIVO de cada infração detectada — para amparar a decisão do auditor.
 
     NÃO reanalisa o vídeo (1 chamada de TEXTO, barata; a evidência da 1ª análise é
-    o insumo). Em falha, cai no laudo determinístico. Nunca levanta. `video` é
-    mantido por compatibilidade de assinatura (não usado)."""
+    o insumo). Só retorna um ``LaudoComite`` quando o ``gemini-2.5-pro`` respondeu
+    DE FATO. Se a IA não está disponível (Comitê desabilitado, sem infrações para
+    julgar, quota 429, timeout, erro de rede ou resposta vazia), levanta
+    ``ComiteSemIAError`` — o caller decide RE-TENTAR (backoff) e o exame fica
+    PENDENTE de comitê. NÃO existe mais laudo determinístico (falsa 2ª opinião).
+    `video` e `deteccao` são mantidos por compatibilidade de assinatura (não
+    usados nesta passada de TEXTO)."""
     started = time.monotonic()
 
-    if not settings.comite_habilitado or not infracoes_detectadas:
-        return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+    if not settings.comite_habilitado:
+        raise ComiteSemIAError(
+            f"Comitê desabilitado (VALBOT_COMITE=0) — exame={exame_id} fica pendente de comitê"
+        )
+    if not infracoes_detectadas:
+        raise ComiteSemIAError(
+            f"Sem infrações detectadas para o Comitê julgar — exame={exame_id} "
+            "fica pendente (nada a reavaliar sem reprocessar a 1ª análise)"
+        )
 
     # Matriz RESTRITA às fichas dos artigos detectados — o Comitê só julga essas;
     # encolhe o prompt e evita estourar o tamanho do pedido em exames com muitas
-    # infrações (que antes caíam no laudo determinístico).
+    # infrações (que antes falhavam por excesso de tokens e ficavam sem laudo).
     artigos = {str(it.get("id") or it.get("codigo") or "") for it in infracoes_detectadas}
     artigos = {a for a in artigos if a}
     try:
@@ -513,12 +479,21 @@ def revisar(
             ),
         )
         raw = _parse_json(resp.text)
+        if not raw:
+            raise ComiteSemIAError(
+                f"Comitê: resposta vazia/ilegível do {settings.vertex_model} — exame={exame_id}"
+            )
         laudo = _laudo_de_justificativa(exame_id, comparacao, raw, time.monotonic() - started)
         log.info("comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas))
         return laudo
-    except Exception as e:  # pragma: no cover — fallback resiliente
-        log.warning("comite Gemini falhou exame=%s (%s) — determinístico", exame_id, e)
-        return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+    except ComiteSemIAError:
+        raise
+    except Exception as e:
+        # IA indisponível (quota 429 / timeout / rede / SDK) — NÃO fabricar laudo
+        # determinístico (falsa 2ª opinião). Sinaliza ao caller para RE-TENTAR;
+        # o exame fica PENDENTE de comitê até a IA responder de fato.
+        log.warning("comite Gemini falhou exame=%s (%s) — pendente de re-tentativa", exame_id, e)
+        raise ComiteSemIAError(f"Comitê sem IA real para exame={exame_id}: {e}") from e
 
 
 def _laudo_de_justificativa(

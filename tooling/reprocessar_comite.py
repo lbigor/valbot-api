@@ -47,14 +47,17 @@ vídeo nem chama o Motor de Detecção.
     chamada (sem conexão global), então cada thread grava na sua própria conexão
     e exames distintos são independentes — ver ``_reprocessar_um_safe``.
 
-⚠️  DEPENDE DA QUOTA DO VERTEX. Este script só tem EFEITO REAL de reanálise quando
-a quota do Vertex AI/Gemini estiver disponível. Sob 429/403 o ``revisar`` cai no
-laudo DETERMINÍSTICO (sem IA) — o que ainda assim DESTRAVA o estado (cria a linha
-em ``exam_comite_laudos`` e move a OS para ``aguardando_auditor``), mas a
-fundamentação rica do Comitê só vem com o Gemini respondendo. O destravamento da
-quota em si é infra (fora deste código). Rode este script DEPOIS que a quota
-voltar para obter os laudos completos; rode com ``VALBOT_COMITE=0`` se quiser
-apenas o destravamento determinístico imediato.
+⚠️  DEPENDE DA QUOTA DO VERTEX. Este script só grava laudo quando o
+``gemini-2.5-pro`` responde DE FATO. REGRA DURA (Igor): NÃO existe mais laudo
+"determinístico". Sob 429/403/timeout o ``revisar`` levanta ``ComiteSemIAError``
+— aqui isso é tratado como RE-TENTAR: o exame faz backoff exponencial e, se a IA
+seguir indisponível neste ciclo, fica PENDENTE de comitê (``acao='RETENTAR'``),
+sem laudo gravado. Como o critério de seleção (``divergente AND NOT
+comite_concluido``) continua casando o exame, o PRÓXIMO ciclo o pega de novo —
+re-enfileiramento implícito. Rode o script periodicamente: assim que a quota do
+Vertex voltar, os pendentes ganham o laudo RICO do Gemini (segunda opinião real).
+Um fallback sem IA seria uma FALSA 2ª opinião (só repete o veredito ②) e
+contaminaria o % de discordância do Comitê — por isso foi REMOVIDO.
 
 USO
 ---
@@ -83,11 +86,14 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import random
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from backend import persistence
 from backend.committee import comite as comite_engine
+from backend.committee.comite import ComiteSemIAError
 from backend.core import db
 from backend.models import (
     Comparacao,
@@ -237,10 +243,11 @@ def _comparacao(exam_id: str, candidato: dict) -> Comparacao:
 
 def _deteccao(exam_id: str) -> SaidaDeteccao:
     """Reconstrói uma ``SaidaDeteccao`` mínima — só o necessário ao Comitê:
-    os comentários do examinador (para o laudo determinístico) e a flag de
-    evidência suficiente. Eventos de detecção completos não são reidratados:
-    ``comite.revisar`` raciocina sobre ``infracoes_detectadas`` + Matriz, não
-    sobre ``deteccao.eventos_detectados`` (só usa ``deteccao`` no fallback)."""
+    os comentários do examinador e a flag de evidência suficiente. Eventos de
+    detecção completos não são reidratados: ``comite.revisar`` raciocina sobre
+    ``infracoes_detectadas`` + Matriz, não sobre ``deteccao.eventos_detectados``.
+    ``deteccao`` é mantida por compatibilidade de assinatura (não mais usada no
+    laudo — o fallback determinístico foi removido)."""
     coment = db.fetch_all(
         """
         SELECT evento_id, descricao, timestamp_audio_seg, transcricao, classificacao
@@ -276,13 +283,56 @@ def _deteccao(exam_id: str) -> SaidaDeteccao:
 # Reprocessamento de um exame (idempotente)
 # ---------------------------------------------------------------------------
 
+# Backoff exponencial das re-tentativas do Comitê quando a IA não responde
+# (quota 429 / timeout / rede). Conservador para não martelar o Vertex sob quota.
+_RETRIES = max(0, int(os.environ.get("VALBOT_COMITE_RETRIES", "3") or "3"))
+_BACKOFF_BASE_SEG = float(os.environ.get("VALBOT_COMITE_BACKOFF_BASE", "2.0") or "2.0")
+_BACKOFF_MAX_SEG = float(os.environ.get("VALBOT_COMITE_BACKOFF_MAX", "30.0") or "30.0")
+
+
+def _revisar_com_backoff(*, exam_id: str, infracoes: list[dict], comp, det):
+    """Chama ``comite.revisar`` re-tentando sob ``ComiteSemIAError`` com backoff
+    exponencial + jitter. Só devolve um ``LaudoComite`` quando o gemini-2.5-pro
+    respondeu DE FATO; se a IA seguir indisponível após ``_RETRIES`` tentativas,
+    RE-LEVANTA ``ComiteSemIAError`` — o caller marca o exame como pendente
+    ('RETENTAR') para o próximo ciclo. NÃO existe fallback determinístico."""
+    ultima: ComiteSemIAError | None = None
+    for tentativa in range(_RETRIES + 1):
+        try:
+            return comite_engine.revisar(
+                None,
+                exame_id=exam_id,
+                infracoes_detectadas=infracoes,
+                comparacao=comp,
+                deteccao=det,
+            )
+        except ComiteSemIAError as e:
+            ultima = e
+            if tentativa >= _RETRIES:
+                break
+            espera = min(_BACKOFF_MAX_SEG, _BACKOFF_BASE_SEG * (2**tentativa))
+            espera += random.uniform(0, espera * 0.25)  # jitter
+            log.warning(
+                "comite sem IA exame=%s tentativa=%d/%d — backoff %.1fs: %s",
+                exam_id,
+                tentativa + 1,
+                _RETRIES + 1,
+                espera,
+                e,
+            )
+            time.sleep(espera)
+    raise ultima if ultima is not None else ComiteSemIAError(f"comite sem IA exame={exam_id}")
+
 
 def _reprocessar_um(exame: dict, *, apply: bool) -> dict:
     """(Re)dispara o Comitê para UM exame. Devolve um resumo do que (faria/fez).
 
     Fluxo (todo reusando funções existentes):
       1. reconstrói infracoes_detectadas + Comparacao + SaidaDeteccao;
-      2. comite.revisar(...) -> LaudoComite (Gemini se houver quota, senão determinístico);
+      2. comite.revisar(...) -> LaudoComite SÓ com a IA real (gemini-2.5-pro). Se a
+         IA não responder (quota/timeout/erro), faz backoff exponencial; esgotadas
+         as tentativas, levanta ComiteSemIAError -> exame fica PENDENTE
+         ('RETENTAR'), SEM laudo (re-enfileirado implicitamente no próximo ciclo);
       3. persistence.salvar_comite(...) -> cria a linha em exam_comite_laudos
          (faz comite_concluido virar TRUE -> exame sai de 'auditoria');
       4. comite.aplicar_exclusoes(...) -> remove infrações 'nao_sustenta' e recalcula;
@@ -307,15 +357,15 @@ def _reprocessar_um(exame: dict, *, apply: bool) -> dict:
         resumo["acao"] = "DRY_RUN (nada gravado)"
         return resumo
 
-    # 2) (re)disparo do Comitê — reusa a engine existente.
-    laudo = comite_engine.revisar(
-        None,
-        exame_id=exam_id,
-        infracoes_detectadas=infracoes,
-        comparacao=comp,
-        deteccao=det,
-    )
-    determ = "+deterministico" in (laudo.comite_versao or "")
+    # 2) (re)disparo do Comitê — SÓ com IA real, com backoff. Sem IA -> pendente.
+    try:
+        laudo = _revisar_com_backoff(exam_id=exam_id, infracoes=infracoes, comp=comp, det=det)
+    except ComiteSemIAError as e:
+        # IA indisponível após o backoff: NÃO grava laudo (sem falsa 2ª opinião).
+        # O exame permanece divergente AND NOT comite_concluido -> o próximo ciclo
+        # do reprocessador o seleciona de novo (re-enfileiramento implícito).
+        resumo.update({"acao": "RETENTAR", "motivo": str(e)})
+        return resumo
 
     # 3) persiste o laudo -> comite_concluido = TRUE (destrava 'auditoria').
     persistence.salvar_comite(hash_, laudo)
@@ -330,7 +380,6 @@ def _reprocessar_um(exame: dict, *, apply: bool) -> dict:
         {
             "acao": "REPROCESSADO",
             "comite_versao": laudo.comite_versao,
-            "modo": "deterministico (sem quota/IA)" if determ else "gemini",
             "conclusao_comite": laudo.conclusao_comite,
             "causas": len(laudo.causas_identificadas),
             "exclusoes": exclusoes.get("excluidas", 0),
@@ -442,9 +491,11 @@ def reprocessar_comite_lote(
     conexão autocommit em ``backend.core.db``; exames distintos são
     independentes). ``apply=False`` faz dry-run (nada é gravado).
 
-    Retorna ``{total, ok, erro, pulados, deterministicos, concorrencia,
+    Retorna ``{total, ok, erro, pulados, retentar, concorrencia,
     apply, resultados}`` — ``resultados`` é a lista de resumos por exame
-    (mesma estrutura devolvida por ``_reprocessar_um_safe``).
+    (mesma estrutura devolvida por ``_reprocessar_um_safe``). ``retentar`` conta
+    os exames que ficaram PENDENTES por falta de IA (re-enfileirados p/ o próximo
+    ciclo). NÃO existe mais ``deterministicos`` (laudo sem IA foi removido).
     """
     if not db.db_enabled():
         return {
@@ -452,7 +503,7 @@ def reprocessar_comite_lote(
             "ok": 0,
             "erro": 0,
             "pulados": 0,
-            "deterministicos": 0,
+            "retentar": 0,
             "concorrencia": 0,
             "apply": apply,
             "db": "off",
@@ -471,7 +522,7 @@ def reprocessar_comite_lote(
             "ok": 0,
             "erro": 0,
             "pulados": 0,
-            "deterministicos": 0,
+            "retentar": 0,
             "concorrencia": 0,
             "apply": apply,
             "resultados": [],
@@ -482,19 +533,20 @@ def reprocessar_comite_lote(
     ok = 0
     erro = 0
     pulados = 0
-    determ = 0
+    retentar = 0
     resultados: list[dict] = []
     lock = threading.Lock()
 
     def _trabalho(exame: dict) -> dict:
-        nonlocal ok, erro, pulados, determ
+        nonlocal ok, erro, pulados, retentar
         r = _reprocessar_um_safe(exame, apply=apply)
         with lock:
             acao = r.get("acao")
             if apply and acao == "REPROCESSADO":
                 ok += 1
-                if "deterministico" in (r.get("modo") or ""):
-                    determ += 1
+            elif acao == "RETENTAR":
+                # pendente por falta de IA — re-enfileirado p/ o próximo ciclo.
+                retentar += 1
             elif acao == "ERRO":
                 erro += 1
             elif acao not in ("REPROCESSADO", "DRY_RUN (nada gravado)"):
@@ -513,7 +565,7 @@ def reprocessar_comite_lote(
         "ok": ok,
         "erro": erro,
         "pulados": pulados,
-        "deterministicos": determ,
+        "retentar": retentar,
         "concorrencia": concurrency,
         "apply": apply,
         "resultados": resultados,
@@ -661,9 +713,9 @@ def main(argv: list[str] | None = None) -> int:
             f"div={r.get('tipo_divergencia')} infr={r.get('n_infracoes')}"
         )
         if acao == "REPROCESSADO":
-            linha += (
-                f" modo={r.get('modo')} concl={r.get('conclusao_comite')} excl={r.get('exclusoes')}"
-            )
+            linha += f" concl={r.get('conclusao_comite')} excl={r.get('exclusoes')}"
+        elif acao == "RETENTAR":
+            linha += f" PENDENTE (sem IA, re-tentar): {r.get('motivo')}"
         elif acao == "ERRO":
             linha += f" ERRO: {r.get('erro')}"
         print(linha, flush=True)
@@ -674,27 +726,29 @@ def main(argv: list[str] | None = None) -> int:
     reprocessados = lote.get("ok", 0)
     erros = lote.get("erro", 0)
     pulados = lote.get("pulados", 0)
-    determ = lote.get("deterministicos", 0)
+    retentar = lote.get("retentar", 0)
 
     print(
         f"[reprocessar_comite] LOTE: {total} submetido(s), "
         f"{reprocessados} ok, {erros} erro(s)"
         + (f", {pulados} pulado(s)" if pulados else "")
+        + (f", {retentar} pendente(s) sem IA" if retentar else "")
         + ".",
         flush=True,
     )
 
     if args.apply:
         print(
-            f"[reprocessar_comite] FIM: {reprocessados} reprocessado(s) "
-            f"({determ} em modo determinístico — sem quota/IA).",
+            f"[reprocessar_comite] FIM: {reprocessados} reprocessado(s) com IA real.",
             flush=True,
         )
-        if determ:
+        if retentar:
             print(
-                "[reprocessar_comite] ⚠️  laudos determinísticos foram gerados: "
-                "DESTRAVAM o estado, mas SEM a fundamentação rica do Gemini. "
-                "Reexecute --incluir-comite quando a quota do Vertex voltar.",
+                f"[reprocessar_comite] ⚠️  {retentar} exame(s) ficaram PENDENTES de "
+                "comitê: a IA (gemini-2.5-pro) não respondeu mesmo após o backoff "
+                "(quota/timeout). NENHUM laudo determinístico foi gravado. Reexecute "
+                "este script quando a quota do Vertex voltar — os pendentes serão "
+                "re-selecionados automaticamente e ganharão o laudo rico do Gemini.",
                 flush=True,
             )
     return 0

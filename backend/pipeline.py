@@ -210,16 +210,23 @@ def processar(
             if result
             else []
         )
-        laudo_comite = comite_engine.revisar(
-            video,
-            exame_id=exame_id,
-            infracoes_detectadas=infracoes_det,
-            comparacao=comp,
-            deteccao=saida_det,
-            rubrica=payload.rubrica,
-        )
-        if persistir:
-            persistence.salvar_comite(hash_exame, laudo_comite)
+        try:
+            laudo_comite = comite_engine.revisar(
+                video,
+                exame_id=exame_id,
+                infracoes_detectadas=infracoes_det,
+                comparacao=comp,
+                deteccao=saida_det,
+                rubrica=payload.rubrica,
+            )
+            if persistir:
+                persistence.salvar_comite(hash_exame, laudo_comite)
+        except comite_engine.ComiteSemIAError as e:
+            # IA indisponível (quota/timeout/erro) — NÃO grava laudo determinístico
+            # (falsa 2ª opinião). O exame fica PENDENTE de comitê (stage 'comite')
+            # e o reprocessador (tooling.reprocessar_comite) re-tenta no próximo
+            # ciclo quando a IA voltar. laudo_comite permanece None.
+            log.warning("pipeline comite sem IA exame=%s — pendente: %s", exame_id, e)
 
     # Reencaminhamento pós-comitê (evolução §10): se o Comitê reavaliou com o
     # prompt MBEDV e passou a CONCORDAR com o examinador, a divergência está
