@@ -438,61 +438,145 @@ def _claim_next_queued() -> str | None:
         return None
 
 
+def _process_one_claimed(h: str) -> str:
+    """Processa UM exame já reivindicado (status=running) ponta-a-ponta.
+
+    Carrega o upload.json, extrai o gs:// e delega a `_run_analysis` (que mantém
+    o GATE de resultado oficial do PR #59 — NÃO duplicado aqui). Devolve um
+    rótulo de desfecho ('done' | 'failed' | 'requeued_429') usado só para o log
+    de lote; o re-enfileiramento em 429/quota é aplicado AQUI para preservar o
+    backoff/respiro do worker original. Nunca lança — captura tudo e marca
+    failed, para não derrubar o ThreadPoolExecutor do lote."""
+    try:
+        out_dir = ANALYSES_DIR / h
+        upload = out_dir / "upload.json"
+        if not upload.exists():
+            db.update_status(h, "failed", error="upload.json ausente")
+            return "failed"
+        meta = json.loads(upload.read_text())
+        gs = (meta.get("video") or {}).get("gs_path")
+        if not gs:
+            db.update_status(h, "failed", error="sem gs_path")
+            return "failed"
+        _run_analysis(h, gs, meta, force_v26=False)
+        # 429/quota → re-enfileira (o backoff entre ciclos é aplicado pelo loop).
+        st = db.fetch_status(h) or ""
+        err = ""
+        try:
+            from tooling.api_stub import db as _db
+
+            with _db._conn() as c:  # type: ignore[attr-defined]
+                r = c.execute("SELECT error FROM exams WHERE hash=%s", (h,)).fetchone()
+                err = (r[0] or "") if r else ""
+        except Exception:
+            pass
+        if st == "failed" and ("429" in err or "exhaust" in err.lower()):
+            db.update_status(h, "queued")  # tenta de novo depois
+            log.warning("auto-queue 429 em %s — re-enfileirado", h[:12])
+            return "requeued_429"
+        return "done" if st != "failed" else "failed"
+    except Exception:
+        log.exception("auto-queue erro ao processar %s", h[:12])
+        try:
+            db.update_status(h, "failed", error="exceção no processamento do lote")
+        except Exception:
+            pass
+        return "failed"
+
+
 @app.on_event("startup")
 def _auto_queue_worker() -> None:
-    """WORKER AUTOMÁTICO da fila — drena os exames CAT B `queued` sozinho,
-    de forma contínua e idempotente. Roda DENTRO da API (inicia com o container,
-    `restart: unless-stopped` garante que volte). Substitui o worker manual
-    (nohup) frágil. Concorrência 1 + backoff em 429 = não estoura quota.
+    """WORKER AUTOMÁTICO da fila — drena os exames CAT B `queued` sozinho, em
+    LOTES CONCORRENTES (loteamento), de forma contínua e idempotente. Roda
+    DENTRO da API (inicia com o container, `restart: unless-stopped` garante que
+    volte). Substitui o worker manual (nohup) frágil.
 
-    Também resolve o gap original: vídeo recém-`init_upload` (queued) agora é
+    LOTEAMENTO (feat/processamento-batch): por ciclo, reivindica até
+    VALBOT_BATCH_SIZE exames via _claim_next_queued() repetido (cada chamada é
+    um UPDATE ... FOR UPDATE SKIP LOCKED atômico — sem race) e despacha o lote
+    em paralelo num ThreadPoolExecutor(max_workers=VALBOT_BATCH_CONCURRENCY).
+    Aguarda o lote inteiro antes do próximo ciclo. Concorrência Vertex total =
+    VALBOT_BATCH_CONCURRENCY (UM knob, determinístico) → defaults conservadores
+    p/ não estourar quota. Backoff exponencial preservado: se o ciclo teve
+    429/quota, dorme com backoff (e os exames afetados já voltaram p/ `queued`).
+
+    Também resolve o gap original: vídeo recém-`init_upload` (queued) é
     processado automaticamente, sem disparo externo. Desliga com
-    VALBOT_AUTO_WORKER=0."""
+    VALBOT_AUTO_WORKER=0 (kill-switch). O GATE de resultado oficial (PR #59)
+    vive dentro de _run_analysis — cada exame decide por si, não é duplicado."""
     if os.environ.get("VALBOT_AUTO_WORKER", "1") != "1":
         log.info("auto-queue worker desabilitado (VALBOT_AUTO_WORKER=0)")
         return
     if USE_MOCK_VLM:
         return
     import threading
+    from concurrent.futures import ThreadPoolExecutor
 
-    def _runner(idx: int = 0) -> None:
-        time.sleep(20 + idx * 4)  # boot estabiliza + escalona o arranque das threads
+    # Tamanho do lote reivindicado por ciclo (claims atômicos).
+    batch_size = max(1, int(os.environ.get("VALBOT_BATCH_SIZE", "5") or "5"))
+    # Concorrência de despacho ao Vertex. Compat: VALBOT_AUTO_WORKERS (antigo nº
+    # de threads-worker) vira o DEFAULT da concorrência do lote — mesmo teto de
+    # paralelismo Vertex de antes, agora num único loop determinístico.
+    _legacy_workers = os.environ.get("VALBOT_AUTO_WORKERS", "3") or "3"
+    concurrency = max(
+        1, int(os.environ.get("VALBOT_BATCH_CONCURRENCY", _legacy_workers) or _legacy_workers)
+    )
+    # Timeout por exame ao aguardar o future (segurança anti-travamento).
+    job_timeout = max(60, int(os.environ.get("VALBOT_BATCH_JOB_TIMEOUT", "1800") or "1800"))
+
+    def _runner() -> None:
+        time.sleep(20)  # boot estabiliza
         backoff = 0
-        log.info("auto-queue worker #%d ON — drenando fila CAT B", idx + 1)
+        log.info(
+            "auto-queue worker (BATCH) ON — lote=%d concorrência=%d — drenando fila CAT B",
+            batch_size,
+            concurrency,
+        )
         while True:
             try:
-                h = _claim_next_queued()
-                if not h:
-                    time.sleep(30)
+                # 1) CLAIM atômico de até batch_size exames (FOR UPDATE SKIP LOCKED).
+                claimed: list[str] = []
+                for _ in range(batch_size):
+                    h = _claim_next_queued()
+                    if not h:
+                        break
+                    claimed.append(h)
+                if not claimed:
+                    time.sleep(30)  # fila vazia → dorme (sem busy-loop)
                     continue
-                out_dir = ANALYSES_DIR / h
-                upload = out_dir / "upload.json"
-                if not upload.exists():
-                    db.update_status(h, "failed", error="upload.json ausente")
-                    continue
-                meta = json.loads(upload.read_text())
-                gs = (meta.get("video") or {}).get("gs_path")
-                if not gs:
-                    db.update_status(h, "failed", error="sem gs_path")
-                    continue
-                _run_analysis(h, gs, meta, force_v26=False)
-                # 429/quota → re-enfileira e respira (backoff exponencial).
-                st = db.fetch_status(h) or ""
-                err = ""
-                try:
-                    from tooling.api_stub import db as _db
+                log.info("auto-queue lote reivindicado: %d exame(s)", len(claimed))
 
-                    with _db._conn() as c:  # type: ignore[attr-defined]
-                        r = c.execute("SELECT error FROM exams WHERE hash=%s", (h,)).fetchone()
-                        err = (r[0] or "") if r else ""
-                except Exception:
-                    pass
-                if st == "failed" and ("429" in err or "exhaust" in err.lower()):
-                    db.update_status(h, "queued")  # tenta de novo depois
+                # 2) Despacho concorrente do lote; aguarda todos antes do próximo ciclo.
+                results: list[str] = []
+                with ThreadPoolExecutor(
+                    max_workers=concurrency, thread_name_prefix="auto-batch"
+                ) as ex:
+                    futures = {ex.submit(_process_one_claimed, h): h for h in claimed}
+                    for fut, hh in futures.items():
+                        try:
+                            results.append(fut.result(timeout=job_timeout))
+                        except Exception:
+                            log.exception("auto-queue lote: future de %s falhou", hh[:12])
+                            try:
+                                db.update_status(hh, "failed", error="timeout/erro no lote")
+                            except Exception:
+                                pass
+                            results.append("failed")
+
+                done = results.count("done")
+                failed = results.count("failed")
+                requeued = results.count("requeued_429")
+                log.info(
+                    "auto-queue lote concluído: %d ok, %d falha, %d re-enfileirado (429)",
+                    done,
+                    failed,
+                    requeued,
+                )
+
+                # 3) Backoff exponencial se houve 429/quota no lote; senão respira leve.
+                if requeued:
                     backoff = min(300, (backoff or 20) * 2)
-                    log.warning(
-                        "auto-queue 429 em %s — backoff %ss, re-enfileirado", h[:12], backoff
-                    )
+                    log.warning("auto-queue 429 no lote — backoff %ss", backoff)
                     time.sleep(backoff)
                 else:
                     backoff = 0
@@ -501,10 +585,12 @@ def _auto_queue_worker() -> None:
                 log.exception("auto-queue worker erro")
                 time.sleep(15)
 
-    n = max(1, int(os.environ.get("VALBOT_AUTO_WORKERS", "3") or "3"))
-    for i in range(n):
-        threading.Thread(target=_runner, args=(i,), daemon=True, name=f"auto-queue-{i + 1}").start()
-    log.info("auto-queue worker: %d threads disparadas (concorrência)", n)
+    threading.Thread(target=_runner, daemon=True, name="auto-queue-batch").start()
+    log.info(
+        "auto-queue worker: loteamento ON (VALBOT_BATCH_SIZE=%d, VALBOT_BATCH_CONCURRENCY=%d)",
+        batch_size,
+        concurrency,
+    )
 
 
 app.add_middleware(
