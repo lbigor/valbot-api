@@ -399,6 +399,19 @@ MAX_UPLOAD_SIZE_BYTES = 600 * 1024 * 1024  # 600 MB — folga sobre os 500 MB t�
 ALLOWED_EXTENSIONS = (".mp4", ".mov", ".m4v")
 ALLOWED_CONTENT_TYPES = {"video/mp4", "video/quicktime", "video/x-m4v"}
 
+
+def _local_video_cache_enabled() -> bool:
+    """O vídeo bruto NUNCA deve persistir em disco por default — o `/mnt/data`
+    enchia (resíduo de centenas de GB) e derrubava o Postgres. A fonte canônica
+    do vídeo é o GCS (a análise lê 100% via `Part.from_uri`); o player serve
+    direto do GCS por streaming/Range. O cache local em
+    `storage/analyses/<hash>/video.mp4` é OPCIONAL e desligado por default.
+
+    `VALBOT_LOCAL_VIDEO_CACHE=1` reabilita o cache local antigo (warm do player
+    e do batch). Default (`0`/ausente) = não cacheia em disco."""
+    return os.environ.get("VALBOT_LOCAL_VIDEO_CACHE", "0") == "1"
+
+
 # Custos por fluxo (devem bater com src/types/flow.ts no frontend)
 FLOW_COSTS = {
     "qwen3-vl": {"rank": 1, "name": "Qwen3-VL-235B", "cost_usd": 0.025, "latency_s": 45},
@@ -1671,11 +1684,19 @@ async def create_exam(
         "[]", description="JSON serializado: array de {timestamp HH:MM:SS, anotacoes}."
     ),
 ):
-    """Recebe upload + metadados, persiste o vídeo em `storage/analyses/<hash>/`
-    e dispara `_run_analysis` em background. Retorna `analysis_id = sha256(video)`.
+    """Recebe upload + metadados, sobe o vídeo pro GCS (fonte canônica) e dispara
+    `_run_analysis` em background. Retorna `analysis_id = sha256(video)`.
+
+    O vídeo NÃO persiste em `storage/analyses/<hash>/video.mp4`: o /mnt/data
+    enchia com resíduo bruto e derrubava o Postgres. O staging usa um tempfile
+    removido após o upload ao GCS; a análise lê do GCS (`Part.from_uri`). Em
+    `VALBOT_USE_MOCK_VLM=1` (dev sem GCS) o tempfile é mantido só durante a
+    análise — o mock precisa abrir o arquivo local — e o cleanup roda no fim.
 
     O frontend faz polling em `/api/exams/{id}` até `status == "processed"`.
     """
+    import tempfile
+
     try:
         annotations_parsed = [
             TrainingAnnotation(**a) for a in json.loads(training_annotations or "[]")
@@ -1687,8 +1708,46 @@ async def create_exam(
     out_dir = ANALYSES_DIR / hash_hex
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    video_path = out_dir / (file.filename or "video.mp4")
-    video_path.write_bytes(content)
+    # Staging em tempfile (removido após upload ao GCS) — nunca em
+    # analyses/<hash>/video.mp4. O blob_name segue a convenção do fluxo
+    # signed URL (uploads/<hash>/video.mp4) pra reaproveitar gate/descarte.
+    blob_name = f"{GCS_UPLOAD_PREFIX}/{hash_hex}/video.mp4"
+    gs_path = f"gs://{GCS_BUCKET}/{blob_name}"
+
+    tmp_fd, tmp_name = tempfile.mkstemp(suffix=".mp4", prefix="valbot-upload-")
+    try:
+        with os.fdopen(tmp_fd, "wb") as _tf:
+            _tf.write(content)
+    except Exception:
+        try:
+            os.close(tmp_fd)
+        except Exception:
+            pass
+        raise
+
+    # Sobe pro GCS (fonte canônica). Em mock não há GCS configurado — segue
+    # com o tempfile local e não falha o upload.
+    gcs_ok = False
+    if not USE_MOCK_VLM:
+        try:
+            client = _gcs_client()
+            bucket = client.bucket(GCS_BUCKET)
+            blob = bucket.blob(blob_name)
+            blob.upload_from_filename(tmp_name, content_type="video/mp4")
+            gcs_ok = True
+            log.info(
+                "upload legado → GCS ok id=%s (%s MB) %s",
+                hash_hex[:12],
+                round(len(content) / 1024 / 1024, 2),
+                gs_path,
+            )
+        except Exception:
+            log.exception("upload legado: falha ao subir pro GCS id=%s — abortando", hash_hex[:12])
+            try:
+                os.remove(tmp_name)
+            except Exception:
+                pass
+            raise HTTPException(502, "falha ao persistir vídeo no GCS")
 
     upload_meta = {
         "analysis_id": hash_hex,
@@ -1698,6 +1757,7 @@ async def create_exam(
             "size_bytes": len(content),
             "size_mb": round(len(content) / 1024 / 1024, 2),
             "hash": hash_hex,
+            "gs_path": gs_path if gcs_ok else None,
         },
         "candidato": {
             "nome": candidato_nome,
@@ -1730,12 +1790,39 @@ async def create_exam(
         f"→ analysis_id={hash_hex[:12]}… status={_ingest_status} (mock={USE_MOCK_VLM})"
     )
 
-    threading.Thread(
-        target=_run_analysis,
-        args=(hash_hex, str(video_path), upload_meta),
-        daemon=True,
-        name=f"analyze-{hash_hex[:8]}",
-    ).start()
+    if USE_MOCK_VLM:
+        # Dev sem GCS: o mock precisa abrir o arquivo local. Mantém o tempfile
+        # durante a análise e remove no fim (try/except — nunca derruba nada).
+        def _run_and_cleanup(_tmp: str):
+            try:
+                _run_analysis(hash_hex, _tmp, upload_meta)
+            finally:
+                try:
+                    os.remove(_tmp)
+                    log.info("upload legado (mock): tempfile removido %s", _tmp)
+                except Exception:
+                    log.warning("upload legado (mock): falha ao remover tempfile %s", _tmp)
+
+        threading.Thread(
+            target=_run_and_cleanup,
+            args=(tmp_name,),
+            daemon=True,
+            name=f"analyze-{hash_hex[:8]}",
+        ).start()
+    else:
+        # Produção: o vídeo já está no GCS — remove o tempfile de staging AGORA
+        # (não persiste em disco) e dispara a análise lendo do GCS via gs://.
+        try:
+            os.remove(tmp_name)
+            log.info("upload legado: tempfile de staging removido %s", tmp_name)
+        except Exception:
+            log.warning("upload legado: falha ao remover tempfile de staging %s", tmp_name)
+        threading.Thread(
+            target=_run_analysis,
+            args=(hash_hex, gs_path, upload_meta),
+            daemon=True,
+            name=f"analyze-{hash_hex[:8]}",
+        ).start()
 
     return {"analysis_id": hash_hex, "status": _ingest_status, **upload_meta}
 
@@ -2566,7 +2653,9 @@ def get_exam_video(analysis_id: str, request: Request, background: BackgroundTas
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
 
     # Background: clona o blob inteiro pra disco local pra próximas
-    # requests serem direto-FileResponse. Só dispara se ainda não tem.
+    # requests serem direto-FileResponse. DESLIGADO por default — o cache local
+    # enchia o /mnt/data e derrubava o Postgres; o streaming acima já serve 100%
+    # do GCS sem depender de disco. Reabilita com VALBOT_LOCAL_VIDEO_CACHE=1.
     def warm_local_cache():
         try:
             if local.exists():
@@ -2575,11 +2664,13 @@ def get_exam_video(analysis_id: str, request: Request, background: BackgroundTas
             tmp = local.with_suffix(".mp4.partial")
             blob.download_to_filename(str(tmp))
             tmp.rename(local)
+            log.info("warm_local_cache: cache local materializado %s", local)
         except Exception:
             # cache miss não bloqueia requests — silencioso.
             pass
 
-    background.add_task(warm_local_cache)
+    if _local_video_cache_enabled():
+        background.add_task(warm_local_cache)
 
     return StreamingResponse(
         chunker(),
