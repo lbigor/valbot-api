@@ -6189,8 +6189,10 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
                 "1_identificacao": {},
                 "2_candidato": {},
                 "3_examinador": {},
-                "4_resultado_oficial": {},
-                "5_resultado_calculado": {},
+                # decidido_em=null nos 5 nós da cadeia do resultado: sem dossiê
+                # nenhuma etapa ocorreu (contrato — front mostra "—" sem hora).
+                "4_resultado_oficial": {"decidido_em": None},
+                "5_resultado_calculado": {"decidido_em": None},
                 "6_cobertura": {},
                 "7_analise_detalhada": [],
                 "7b_comentarios_examinador": _read_training_annotations(hash_),
@@ -6198,9 +6200,9 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
                 "7d_eventos_sem_enquadramento": [],
                 "7e_compliance": [],
                 "8_divergencia": {},
-                "9_comite_ia": {},
-                "10_parecer_auditor": {},
-                "11_decisao_supervisor": {},
+                "9_comite_ia": {"decidido_em": None},
+                "10_parecer_auditor": {"decidido_em": None},
+                "11_decisao_supervisor": {"decidido_em": None},
                 "12_eventos_os": [],
                 "12b_linha_tempo": [],
                 "13_envio_unidade_gestora": {},
@@ -6230,6 +6232,31 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     matriz_vigente = d.get("matriz_vigente") or {}
     # Comentários do examinador TechPrático (upload.json → training_annotations).
     _train_ann_pdf = _read_training_annotations(hash_)
+
+    # --- decidido_em: timestamp ISO-8601 de cada etapa da CADEIA DO RESULTADO ----
+    # Contrato compartilhado (frente BACK + frente FRONT): cada um dos 5 nós da
+    # cadeia (① Examinador → ② Auditor Val (IA) → ③ Comitê de IA → ④ Auditor →
+    # ⑤ Supervisor) ganha um campo `decidido_em` (string ISO-8601 ou null se a
+    # etapa ainda não ocorreu). NUNCA inventa data: etapa sem registro no banco →
+    # null (o front mostra "—" sem hora). Mapeamento das datas REAIS já no DB:
+    #   ① data do resultado oficial do examinador → exams.data_hora_exame
+    #   ② data/hora da análise da IA              → exams.created_at
+    #   ③ data/hora do parecer do Comitê          → exam_comite_laudos.created_at
+    #   ④ timestamp do parecer-auditor            → auditor_pareceres.created_at
+    #   ⑤ timestamp da decisão do supervisor      → supervisor_decisoes.created_at
+    def _iso_or_none(v):
+        """datetime → ISO-8601; string não-vazia → ela mesma; resto → None."""
+        if v is None or v == "":
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
+
+    _decidido_em_examinador = _iso_or_none(e.get("data_hora_exame"))
+    _decidido_em_ia = _iso_or_none(e.get("created_at"))
+    _decidido_em_comite = _iso_or_none(comite.get("created_at"))
+    _decidido_em_auditor = _iso_or_none(parecer.get("created_at"))
+    _decidido_em_supervisor = _iso_or_none(decisao.get("created_at"))
 
     # --- Fallbacks do BUG confirmado (ordem_servico VAZIA em prod) -------------
     # resultado_oficial    ⇐ e.resultado_exame      (A/R/N do examinador presencial)
@@ -6369,6 +6396,8 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             # GAP: nenhuma coluna registra quem lançou o resultado oficial.
             "registrado_por": None,
             "data_hora_exame": e.get("data_hora_exame"),
+            # ① Examinador — etapa da cadeia do resultado (ver _iso_or_none acima).
+            "decidido_em": _decidido_em_examinador,
             "anotacoes_tpa": _train_ann_pdf,
             "infracoes_oficiais": infracoes_oficiais,
         },
@@ -6387,6 +6416,8 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "matriz_versao": e.get("matriz_versao"),
             "gate_rejected": e.get("gate_rejected"),
             "gate_motivo": e.get("gate_motivo"),
+            # ② Auditor Val (IA) — etapa da cadeia do resultado.
+            "decidido_em": _decidido_em_ia,
         },
         # 6 — COBERTURA / camadas técnicas
         "6_cobertura": {
@@ -6423,13 +6454,27 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         },
         # 9 — COMITÊ DE IA. veredito_comite ACRESCENTADO (derivado, EXIBIÇÃO);
         # conclusao_comite e demais campos preservados intactos.
-        "9_comite_ia": {**comite, **comite_meta, "veredito_comite": _veredito_comite},
-        # 10 — PARECER AUDITOR. veredito_auditor ACRESCENTADO; decisao/
-        # resultado_final preservados.
-        "10_parecer_auditor": {**parecer, "veredito_auditor": _veredito_auditor},
-        # 11 — DECISÃO SUPERVISOR. veredito_supervisor ACRESCENTADO; decisao
-        # preservada.
-        "11_decisao_supervisor": {**decisao, "veredito_supervisor": _veredito_supervisor},
+        # decidido_em (③) ACRESCENTADO — etapa da cadeia do resultado.
+        "9_comite_ia": {
+            **comite,
+            **comite_meta,
+            "veredito_comite": _veredito_comite,
+            "decidido_em": _decidido_em_comite,
+        },
+        # 10 — PARECER AUDITOR. veredito_auditor + decidido_em (④) ACRESCENTADOS;
+        # decisao/resultado_final preservados.
+        "10_parecer_auditor": {
+            **parecer,
+            "veredito_auditor": _veredito_auditor,
+            "decidido_em": _decidido_em_auditor,
+        },
+        # 11 — DECISÃO SUPERVISOR. veredito_supervisor + decidido_em (⑤)
+        # ACRESCENTADOS; decisao preservada.
+        "11_decisao_supervisor": {
+            **decisao,
+            "veredito_supervisor": _veredito_supervisor,
+            "decidido_em": _decidido_em_supervisor,
+        },
         # 12 — LINHA DO TEMPO: trilha da OS + cronologia de eventos brutos.
         # Cada evento bruto é ENRIQUECIDO (tempo fmt, duração, % confiança,
         # ângulo de câmera) preservando o registro cru via spread.
