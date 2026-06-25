@@ -7178,6 +7178,120 @@ def _estado_fluxo(
     return "consenso" if oficial == calculado else "divergencia"
 
 
+# --- Derivação do Comitê na MONTAGEM (retroativo, sem reprocessar exames) -----
+# Linhas antigas de exam_comite_laudos têm conclusao_comite vazio/'aguardando' e
+# infrações SUSTENTADAS sem status (só as excluídas vinham com 'excluida_comite').
+# Resultado: o card "CONCLUSÃO" e a sustentada no evento-a-evento apareciam
+# "aguardando" MESMO com o Comitê já tendo cravado o veredito. Estes helpers
+# DERIVAM os valores faltantes na hora da montagem do laudo-json — não tocam o DB
+# nem renomeiam chaves; só preenchem o que ficou vazio quando o Comitê concluiu.
+
+# Enums de status de infração que já significam EXCLUSÃO pelo Comitê (preservados).
+_COMITE_VEREDITO_EXCLUSAO = {
+    "excluida_comite",
+    "excluida",
+    "descartada",
+    "descartado",
+    "nao_sustenta",
+    "nao_sustentada",
+}
+
+
+def _comite_concluiu(comite: dict) -> bool:
+    """True se o Comitê (③) de fato concluiu: cravou veredito A/R, OU produziu
+    verificações por infração, OU deixou recomendação ao auditor. É o gatilho para
+    derivar conclusao_comite/veredito por infração — só age DEPOIS que ele agiu."""
+    if not comite:
+        return False
+    if _res_label(comite.get("resultado_comite")) is not None:
+        return True
+    if comite.get("verificacoes_executadas"):
+        return True
+    if str(comite.get("recomendacao_para_auditor") or "").strip():
+        return True
+    return False
+
+
+def _comite_verifs_por_regra(comite: dict) -> dict[str, str]:
+    """Mapa regra_id → resultado do Comitê ('sustenta'|'nao_sustenta'|'revisar')
+    a partir de verificacoes_executadas — a MESMA fonte que alimenta o card
+    'ANÁLISE POR INFRAÇÃO' (resultado='sustenta' vira 'Sustenta'). Aceita a coluna
+    jsonb já decodificada (list) ou ainda como string JSON. Não levanta."""
+    verifs = comite.get("verificacoes_executadas") or []
+    if isinstance(verifs, str):
+        try:
+            verifs = json.loads(verifs)
+        except Exception:
+            verifs = []
+    out: dict[str, str] = {}
+    if not isinstance(verifs, list):
+        return out
+    for v in verifs:
+        if not isinstance(v, dict):
+            continue
+        regra = str(v.get("regra") or "").strip()
+        res = str(v.get("resultado") or "").strip().lower()
+        if regra and res:
+            out[regra] = res
+    return out
+
+
+def _derivar_conclusao_comite(comite: dict, resultado_oficial) -> str | None:
+    """Deriva conclusao_comite quando o Comitê concluiu mas a coluna veio vazia/
+    'aguardando' (linhas antigas). NUNCA emite vazio/'aguardando' depois que o
+    comitê concluiu: veredito do comitê == examinador → 'concorda_com_examinador';
+    senão → 'manter_divergencia_com_fundamentacao'. Conclusão já válida é
+    preservada. Espelha backend.committee.comite._derivar_relacao_comite, mas
+    reusando os helpers de relação locais (_relacao_ar/_ar_ou_aguardando)."""
+    raw = str(comite.get("conclusao_comite") or "").strip()
+    if raw and raw.lower() != "aguardando":
+        return raw  # já tem conclusão válida cravada — não mexe
+    if not _comite_concluiu(comite):
+        return raw or None  # comitê não concluiu — não inventa
+    rel = _relacao_ar(
+        _ar_ou_aguardando(comite.get("resultado_comite")),
+        _ar_ou_aguardando(resultado_oficial),
+    )
+    return (
+        "concorda_com_examinador" if rel == "concorda" else "manter_divergencia_com_fundamentacao"
+    )
+
+
+def _aplicar_veredito_comite_infracoes(
+    comite: dict, infracoes: list[dict], infracoes_raw: list[dict]
+) -> None:
+    """Marca o veredito do Comitê POR infração na montagem (in-place). Depois que o
+    Comitê concluiu, TODA infração tem veredito explícito: ou foi EXCLUÍDA
+    (status='excluida_comite', já vinha do DB) ou foi SUSTENTADA. Antes, a
+    sustentada ficava sem status e caía em 'aguardando' no evento-a-evento. Cruza
+    com verificacoes_executadas (mesma origem do card 'ANÁLISE POR INFRAÇÃO') por
+    regra_id; sem verif explícita mas comitê concluiu e não excluiu → sustentada."""
+    if not _comite_concluiu(comite):
+        return
+    verifs = _comite_verifs_por_regra(comite)
+    for raw, inf in zip(infracoes_raw, infracoes, strict=False):
+        if not isinstance(inf, dict):
+            continue
+        st = str((raw or {}).get("status") or "").strip().lower()
+        if st in _COMITE_VEREDITO_EXCLUSAO:
+            continue  # já marcada como excluída pelo Comitê — preserva intacta
+        rid = str((raw or {}).get("regra_id") or inf.get("id") or "").strip()
+        res = verifs.get(rid)
+        if res in ("nao_sustenta", "nao_sustentada"):
+            novo = "excluida_comite"
+        else:
+            # 'sustenta'/'revisar' OU sem verif explícita mas comitê concluiu e não
+            # excluiu → infração SUSTENTADA (conservador: a falta permanece).
+            novo = "confirmada"
+        inf["veredito"] = novo
+        inf["veredito_label"] = _rotulo_comite_formal(novo)
+        # veredicto POR infração do Comitê (enum verificacoes), p/ quem consome a
+        # mesma fonte do card; 'sustenta' default quando sustentada.
+        vc = res or "sustenta"
+        inf["veredito_comite"] = vc
+        inf["veredito_comite_label"] = _rotulo_comite_formal(vc)
+
+
 def _laudo_blocos_14_2(hash_: str) -> dict:
     """Monta os 14 blocos do §14.2 a partir do dossiê do DB (exam + comitê +
     parecer + decisão + eventos). DB off → placeholder com os 14 blocos vazios.
@@ -7282,9 +7396,13 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     # gravidade_label, cameras_fmt, confianca textual). Sem isso o timestamp (que o
     # Gemini SEMPRE aponta e está salvo) e os demais campos apareciam "—".
     _dur_infr = float((d.get("exam") or {}).get("duration_s") or 0)
-    infracoes = [
-        _infracao_from_db(i, item, _dur_infr) for i, item in enumerate(d.get("infracoes") or [])
-    ]
+    _infracoes_raw = d.get("infracoes") or []
+    infracoes = [_infracao_from_db(i, item, _dur_infr) for i, item in enumerate(_infracoes_raw)]
+    # Veredito do Comitê POR infração — DERIVADO na montagem (retroativo): marca a
+    # SUSTENTADA com veredito explícito ('confirmada') cruzando verificacoes_executadas,
+    # preservando as já excluídas ('excluida_comite'). Sem isso a sustentada caía em
+    # 'aguardando' no evento-a-evento mesmo após o Comitê concluir.
+    _aplicar_veredito_comite_infracoes(comite, infracoes, _infracoes_raw)
     eventos = d.get("os_eventos") or []
     divergencia = d.get("divergencia") or {}
     eventos_brutos = d.get("eventos") or []
@@ -7523,6 +7641,11 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         "9_comite_ia": {
             **comite,
             **comite_meta,
+            # conclusao_comite DERIVADA na montagem: quando o comitê concluiu mas a
+            # coluna veio vazia/'aguardando' (linhas antigas), nunca emite vazio —
+            # 'concorda_com_examinador' se o veredito bate com ①, senão
+            # 'manter_divergencia_com_fundamentacao'. Conclusão já válida é mantida.
+            "conclusao_comite": _derivar_conclusao_comite(comite, resultado_oficial),
             "veredito_comite": _veredito_comite,
             "relacao_examinador": _relacao_ar(
                 _ar_ou_aguardando(comite.get("resultado_comite")),
