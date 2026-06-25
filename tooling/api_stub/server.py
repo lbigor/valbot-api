@@ -3109,6 +3109,128 @@ def _write_status(out_dir: Path, status: str, **extra) -> None:
     (out_dir / "status.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+# ----------------------------------------------------------------------------
+# Descarte do vídeo bruto local (staging)
+#
+# O `video.mp4` em storage/analyses/<hash>/ é só STAGING do download
+# (TechPrático/S3 → disco → upload GCS → análise lê do GCS via Part.from_uri).
+# A fonte canônica é o GCS (gs://<bucket>/uploads/<hash>/video.mp4). Reter o
+# local indefinidamente encheu o disco /mnt/data (422G de resíduo). Assim que
+# o vídeo está no GCS e a análise terminou (sucesso OU falha terminal), o local
+# é descartável — desde que a cópia no GCS exista (senão perde a única cópia).
+#
+# Flag de segurança: VALBOT_MANTER_VIDEO_LOCAL=1 desliga a remoção (default:
+# remove). Nunca derruba o pipeline — toda falha de unlink/verificação é
+# capturada e só logada.
+# ----------------------------------------------------------------------------
+
+
+def _resolve_gs_uri_for(analysis_id: str, upload_meta: dict | None = None) -> str | None:
+    """Resolve o `gs://...` do vídeo de um exame.
+
+    Tenta primeiro o `upload_meta` em memória; depois result.json/upload.json
+    no disco (mesma convenção de `get_exam_video`). None se não houver gs_path.
+    """
+    if isinstance(upload_meta, dict):
+        v = upload_meta.get("video") if isinstance(upload_meta.get("video"), dict) else None
+        gs = (v or {}).get("gs_uri") or (v or {}).get("gs_path") or upload_meta.get("gs_path")
+        if isinstance(gs, str) and gs.startswith("gs://"):
+            return gs
+    base = ANALYSES_DIR / analysis_id
+    for name in ("result.json", "upload.json"):
+        src = base / name
+        if not src.exists():
+            continue
+        try:
+            doc = json.loads(src.read_text())
+        except Exception:
+            continue
+        if not isinstance(doc, dict):
+            continue
+        v = doc.get("video") if isinstance(doc.get("video"), dict) else None
+        gs = (v or {}).get("gs_uri") or (v or {}).get("gs_path") or doc.get("gs_path")
+        if isinstance(gs, str) and gs.startswith("gs://"):
+            return gs
+    return None
+
+
+def _gcs_blob_exists(gs_uri: str) -> bool:
+    """True se o blob `gs://bucket/path` existe no GCS. Levanta em erro de
+    infra (rede/permissão) — o chamador decide se preserva o local por
+    segurança. NÃO trata 404 como erro: Blob.exists() devolve False."""
+    rest = gs_uri[len("gs://") :]
+    bucket_name, _, blob_name = rest.partition("/")
+    if not bucket_name or not blob_name:
+        raise ValueError(f"gs_uri malformado: {gs_uri}")
+    client = _gcs_client()
+    blob = client.bucket(bucket_name).blob(blob_name)
+    return bool(blob.exists())
+
+
+def _descartar_video_local(analysis_id: str, upload_meta: dict | None = None) -> bool:
+    """Remove o `video.mp4` local de staging APÓS a análise terminar, desde que
+    a cópia exista no GCS (fonte canônica). Conservador e à prova de falha:
+
+      - VALBOT_MANTER_VIDEO_LOCAL=1 → no-op (mantém o local).
+      - Sem arquivo local → no-op.
+      - Sem gs_path resolvível OU blob ausente/erro no GCS → PRESERVA o local
+        (pode ser a única cópia) e loga; nunca remove às cegas.
+      - Qualquer exceção é capturada — jamais derruba o pipeline.
+
+    Devolve True se removeu algo, False caso contrário.
+    """
+    if os.environ.get("VALBOT_MANTER_VIDEO_LOCAL", "0") == "1":
+        return False
+    try:
+        local = _local_video_for(analysis_id)
+        if local is None:
+            return False
+        gs_uri = _resolve_gs_uri_for(analysis_id, upload_meta)
+        if not gs_uri:
+            log.warning(
+                "descarte-video SKIP id=%s — sem gs_path; preservando local %s "
+                "(possível única cópia)",
+                analysis_id[:12],
+                local.name,
+            )
+            return False
+        try:
+            exists = _gcs_blob_exists(gs_uri)
+        except Exception as e:
+            log.warning(
+                "descarte-video SKIP id=%s — falha ao verificar GCS (%s); "
+                "preservando local por segurança",
+                analysis_id[:12],
+                e,
+            )
+            return False
+        if not exists:
+            log.warning(
+                "descarte-video SKIP id=%s — blob ausente no GCS (%s); "
+                "preservando local (única cópia)",
+                analysis_id[:12],
+                gs_uri,
+            )
+            return False
+        try:
+            size_mb = round(local.stat().st_size / 1024 / 1024, 2)
+        except Exception:
+            size_mb = None
+        local.unlink()
+        log.info(
+            "descarte-video OK id=%s — removido local %s (%s MB); fonte no GCS %s",
+            analysis_id[:12],
+            local.name,
+            size_mb,
+            gs_uri,
+        )
+        return True
+    except Exception:
+        # Nunca derruba o pipeline por falha de limpeza.
+        log.exception("descarte-video erro inesperado id=%s (ignorado)", analysis_id[:12])
+        return False
+
+
 def _read_status(out_dir: Path) -> str:
     """Lê status do exame priorizando o DB (single source of truth).
 
@@ -3417,6 +3539,12 @@ def _run_analysis(
             result.get("aprovado"),
         )
 
+        # Análise concluída com sucesso → o vídeo já está no GCS e foi lido de
+        # lá; o video.mp4 local de staging é descartável. Remoção conservadora
+        # (verifica GCS antes; nunca derruba o pipeline). Vide
+        # `_descartar_video_local`.
+        _descartar_video_local(analysis_id, upload_meta)
+
     except Exception as e:
         log.exception("analysis failed for %s", analysis_id[:12])
         # Fase A: DB primeiro, status.json depois.
@@ -3427,6 +3555,11 @@ def _run_analysis(
             error=str(e),
             traceback=traceback.format_exc()[-2000:],
         )
+        # Falha TERMINAL: o exame não está mais em análise ativa. Se o vídeo
+        # está no GCS (fonte canônica), o local de staging é descartável —
+        # reprocessamento manual relê do GCS. Conservador: só remove se o blob
+        # existir no GCS (senão preserva a única cópia).
+        _descartar_video_local(analysis_id, upload_meta)
 
 
 def _render_laudo_pdf(out_dir: Path, result: dict, upload_meta: dict) -> None:
