@@ -1400,6 +1400,33 @@ def save_parecer_auditor(
         return None
 
 
+def parecer_auditor_ja_confirmado(os_id: str) -> bool:
+    """True se a OS já tem um parecer do Auditor confirmado (registro em auditor_pareceres).
+
+    Guard de imutabilidade do POST /api/exams/{hash}/parecer-auditor: depois que o
+    Auditor confirma o parecer/laudo, ele NÃO pode mais ser alterado — o endpoint
+    deve recusar a re-submissão com 409 ANTES de chamar save_parecer_auditor (que faz
+    DELETE+INSERT e sobrescreveria o parecer). Rascunho do auditor é localStorage no
+    front e NÃO passa por este endpoint, então só há registro quando houve confirmação.
+    DB off, OS inexistente, os_id vazio ou erro → False (não bloqueia o eco-mock).
+    Nunca lança.
+    """
+    if _disabled() or not os_id:
+        return False
+    try:
+        with _conn() as c:
+            if c is None:
+                return False
+            row = c.execute(
+                "SELECT 1 FROM auditor_pareceres WHERE os_id = %s LIMIT 1",
+                (os_id,),
+            ).fetchone()
+            return bool(row)
+    except Exception as e:
+        log.warning("db.parecer_auditor_ja_confirmado falhou os=%s: %s", os_id, e)
+        return False
+
+
 # ============================================================================
 # APP_SETTINGS — config chave/valor (provisão de câmbio USD→BRL, etc.).
 # Tabela: app_settings(key PK, value text NOT NULL, description, updated_at, updated_by).
