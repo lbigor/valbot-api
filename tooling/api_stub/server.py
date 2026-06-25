@@ -1615,11 +1615,13 @@ async def create_exam(
         },
     }
     (out_dir / "upload.json").write_text(json.dumps(upload_meta, indent=2, ensure_ascii=False))
-    _write_status(out_dir, "queued")
+    # Sem oficial → 'recebido' (aguardando oficial); com oficial A/R → 'queued'.
+    _ingest_status = _status_pos_ingestao(hash_hex, upload_meta)
+    _write_status(out_dir, _ingest_status)
 
     print(
         f"[API] ✅ Upload recebido '{file.filename}' ({upload_meta['video']['size_mb']}MB) "
-        f"→ analysis_id={hash_hex[:12]}… (mock={USE_MOCK_VLM})"
+        f"→ analysis_id={hash_hex[:12]}… status={_ingest_status} (mock={USE_MOCK_VLM})"
     )
 
     threading.Thread(
@@ -1629,7 +1631,7 @@ async def create_exam(
         name=f"analyze-{hash_hex[:8]}",
     ).start()
 
-    return {"analysis_id": hash_hex, "status": "queued", **upload_meta}
+    return {"analysis_id": hash_hex, "status": _ingest_status, **upload_meta}
 
 
 # ============================================================================
@@ -2023,8 +2025,12 @@ async def _download_one_async(
             (out_dir / "upload.json").write_text(
                 json.dumps(upload_meta, indent=2, ensure_ascii=False)
             )
-            _write_status(out_dir, "queued")
-            db.update_status(analysis_id, "queued")
+            # Sem oficial → entra como 'recebido' (aguardando oficial), NÃO
+            # 'queued' — o worker não o reivindica; o _run_analysis disparado
+            # abaixo passa pelo gate e o mantém em 'recebido'. Idempotente.
+            _ingest_status = _status_pos_ingestao(analysis_id, upload_meta)
+            _write_status(out_dir, _ingest_status)
+            db.update_status(analysis_id, _ingest_status)
 
             log.info(
                 "download done analysis_id=%s size_mb=%s — dispatching analysis",
@@ -2262,19 +2268,22 @@ def finalize_upload(
     if req.sha256_client:
         upload_meta["video"]["sha256_client"] = req.sha256_client
     upload_path.write_text(json.dumps(upload_meta, indent=2, ensure_ascii=False))
-    _write_status(out_dir, "queued")
+    # Sem oficial → 'recebido' (aguardando oficial); com oficial A/R → 'queued'.
+    _ingest_status = _status_pos_ingestao(analysis_id, upload_meta)
+    _write_status(out_dir, _ingest_status)
 
-    db.update_status(analysis_id, "queued", gs_video=gs_path)
+    db.update_status(analysis_id, _ingest_status, gs_video=gs_path)
 
     log.info(
-        "finalize analysis_id=%s blob_size=%s md5=%s",
+        "finalize analysis_id=%s blob_size=%s md5=%s status=%s",
         analysis_id[:12],
         blob.size,
         (blob.md5_hash or "")[:12],
+        _ingest_status,
     )
 
     background.add_task(_run_analysis, analysis_id, gs_path, upload_meta)
-    return {"analysis_id": analysis_id, "status": "queued", "gs_path": gs_path}
+    return {"analysis_id": analysis_id, "status": _ingest_status, "gs_path": gs_path}
 
 
 @app.get("/api/exams/{analysis_id}")
@@ -2782,9 +2791,17 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
     # db não tem to_jsonb — serializa e faz cast ::jsonb no UPDATE.
     sets = ["training_annotations = %s::jsonb"]
     vals: list = [json.dumps(annots)]
+    # Promoção recebido→queued: quando o oficial DEFINITIVO (A/R) chega, o exame
+    # que estava "recebido" (aguardando oficial) volta pra fila pra o worker
+    # analisar. Só promove se o status atual é 'recebido' (não mexe em running/
+    # processed/failed/queued já existentes) e se o oficial é A/R (não 'N'/vazio).
+    _oficial_definitivo = (str(resultado).strip().upper() if resultado else "") in ("A", "R")
     if resultado:
         sets.append("resultado_exame = COALESCE(%s, resultado_exame)")
         vals.append(resultado)
+    if _oficial_definitivo:
+        sets.append("status = CASE WHEN status = %s THEN %s ELSE status END")
+        vals.extend([STATUS_RECEBIDO, "queued"])
     vals.append(hash_)
     try:
         with db._conn() as c:  # type: ignore[attr-defined]
@@ -2792,6 +2809,12 @@ def _buscar_resultado_techpratico(hash_: str) -> dict:
                 c.execute(f"UPDATE exams SET {', '.join(sets)} WHERE hash = %s", vals)
     except Exception as e:
         return {"hash": hash_, "status": "erro_persist", "msg": str(e)[:200]}
+    if _oficial_definitivo:
+        log.info(
+            "buscar-resultado: oficial %s chegou p/ %s — recebido→queued (se aplicável)",
+            str(resultado).strip().upper(),
+            hash_[:12],
+        )
     return {
         "hash": hash_,
         "status": "ok",
@@ -3009,6 +3032,31 @@ def _read_status(out_dir: Path) -> str:
         return "unknown"
 
 
+# Status canônico para "aguardando resultado oficial do examinador (TechPrático)".
+# Regra de negócio (Igor, dura): exame SEM oficial (resultado_exame ∉ {A,R}) NÃO
+# pode ficar em queued/running/failed/processed — fica em "recebido" (aguardando
+# oficial) e só entra na fila de análise (queued) quando o oficial A/R chega.
+# Reutiliza o valor que o Kanban (≈l.1098) e a view 027 (v_exams_overview) JÁ
+# tratam como bucket "Recebido"/"aguardando". O worker (_claim_next_queued) só
+# reivindica status='queued' — portanto NUNCA pega um exame "recebido".
+STATUS_RECEBIDO = "recebido"
+
+
+def _status_pos_ingestao(analysis_id: str, upload_meta: dict) -> str:
+    """Status que o exame recebe ao concluir a ingestão (download/finalize/upload).
+
+    Com oficial A/R presente → 'queued' (entra na fila do worker normalmente).
+    Sem oficial (resultado_exame ∉ {A,R}) → 'recebido' (aguardando oficial): o
+    worker não o reivindica e o gate não dispara em loop. Conservador: usa a
+    MESMA regra (_oficial_pendente) e o MESMO bypass (USE_MOCK_VLM) do gate
+    central em _run_analysis, fonte única de verdade — em mock o gate não roda,
+    logo a ingestão também mantém 'queued'.
+    """
+    if USE_MOCK_VLM:
+        return "queued"
+    return STATUS_RECEBIDO if _oficial_pendente(analysis_id, upload_meta) else "queued"
+
+
 def _oficial_pendente(analysis_id: str, upload_meta: dict) -> bool:
     """Regra de negócio (Igor, dura): o ② Auditor Val (IA) só pode analisar o
     vídeo DEPOIS que o resultado OFICIAL do ① Examinador (TechPrático) existir.
@@ -3090,14 +3138,17 @@ def _run_analysis(
             "Use reprocessamento manual p/ forçar.",
             analysis_id[:12],
         )
-        # Mantém o exame elegível: volta pra fila como 'queued' (não 'running'/
-        # 'failed') — assim que o oficial chegar (resultado_exame=A/R) o worker
-        # re-tenta e o gate libera. Idempotente.
+        # Sem oficial → NÃO volta pra 'queued' (senão o worker o re-pega num loop
+        # e ele aparece "em processo"). Fica em "recebido" (aguardando oficial):
+        # o worker (_claim_next_queued) só reivindica 'queued', então não toca
+        # neste exame. Assim que o oficial A/R chegar (buscar-resultado /
+        # dados-exame-analise-ia), o exame é promovido recebido→queued e o worker
+        # re-tenta — o gate então libera. Idempotente.
         try:
-            db.update_status(analysis_id, "queued")
+            db.update_status(analysis_id, STATUS_RECEBIDO)
         except Exception:
             log.exception("SKIP_AGUARDANDO_OFICIAL: update_status falhou p/ %s", analysis_id[:12])
-        _write_status(out_dir, "queued")
+        _write_status(out_dir, STATUS_RECEBIDO)
         return
 
     try:
@@ -3569,7 +3620,18 @@ def _is_real_source_url(url: str | None) -> bool:
     return not any(m in u for m in test_markers)
 
 
-_STATUS_EM_PROCESSO = {"queued", "uploading", "streaming_s3", "pending", "running", "processing"}
+# "recebido" (aguardando oficial) entra aqui: o exame ainda não tem veredito da
+# IA e está parado esperando o oficial — NÃO é "a_revisar". Cai no bucket
+# "em_processo" do Kanban (= coluna Recebido/aguardando da Fila Operacional).
+_STATUS_EM_PROCESSO = {
+    "queued",
+    "uploading",
+    "streaming_s3",
+    "pending",
+    "running",
+    "processing",
+    STATUS_RECEBIDO,
+}
 
 # Cache em memória do feed da fila (TTL curto). A tela é "load de tabela" — não
 # recomputa a cada request. Chave = include_test (bool).
@@ -3774,7 +3836,7 @@ def _compute_totais() -> dict:
                 cur = c.execute(f"""
                     SELECT
                       CASE
-                        WHEN status IN ('queued','uploading','streaming_s3','pending','running','processing') THEN 'em_processo'
+                        WHEN status IN ('queued','uploading','streaming_s3','pending','running','processing','recebido') THEN 'em_processo'
                         WHEN aprovado IS NULL THEN 'a_revisar'
                         WHEN resultado_exame NOT IN ('A','R','N') OR resultado_exame IS NULL THEN 'a_revisar'
                         WHEN (resultado_exame='A') = (aprovado) THEN 'pronto'
