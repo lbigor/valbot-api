@@ -243,6 +243,25 @@ _SCHEMA_OBJECTS = (
     ("v_exams_metrics", _SQL_V_EXAMS_METRICS),
 )
 
+# Migrações LEVES de coluna garantidas no boot (mesmo gancho das views).
+# Motivo: o CD de prod NÃO roda migrations (migrate.sh não roda no deploy) — só o
+# ensure_schema_objects() converge o schema a cada boot. Colunas novas que o código
+# passou a LER/GRAVAR e que não existem na CREATE TABLE base (013) precisam entrar
+# aqui, senão o primeiro INSERT estoura em prod. Estritamente `ADD COLUMN IF NOT
+# EXISTS` (idempotente + best-effort; no-op quando a coluna já existe via migration).
+#   - supervisor_decisoes.resultado_final (036) — veredito final publicado no laudo.
+#   - supervisor_decisoes.homologar_conduta (024) — gravada no mesmo INSERT.
+_SCHEMA_COLUMNS = (
+    (
+        "supervisor_decisoes.resultado_final",
+        "ALTER TABLE supervisor_decisoes ADD COLUMN IF NOT EXISTS resultado_final VARCHAR(16)",
+    ),
+    (
+        "supervisor_decisoes.homologar_conduta",
+        "ALTER TABLE supervisor_decisoes ADD COLUMN IF NOT EXISTS homologar_conduta BOOLEAN NOT NULL DEFAULT FALSE",
+    ),
+)
+
 
 def ensure_schema_objects() -> bool:
     """(Re)cria os objetos derivados de schema (views + log) de forma IDEMPOTENTE.
@@ -274,6 +293,20 @@ def ensure_schema_objects() -> bool:
             if c is None:
                 log.warning("db.ensure_schema_objects: sem conexão — skip")
                 return False
+            # 1) Colunas novas (ADD COLUMN IF NOT EXISTS) ANTES das views — garante
+            # que o schema das tabelas converge no boot mesmo sem migrate.sh no CD.
+            # Cada ALTER é isolado/best-effort (mesma política das views): falha numa
+            # coluna não derruba o boot nem impede as demais.
+            for nome, sql in _SCHEMA_COLUMNS:
+                try:
+                    c.execute(sql)
+                    log.info("db.ensure_schema_objects: coluna %s OK", nome)
+                except Exception as e:
+                    ok = False
+                    log.exception(
+                        "db.ensure_schema_objects: FALHA na coluna %s (boot segue): %s", nome, e
+                    )
+            # 2) Objetos derivados (log + views).
             for nome, sql in _SCHEMA_OBJECTS:
                 try:
                     c.execute(sql)
