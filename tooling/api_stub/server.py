@@ -630,6 +630,15 @@ def _auto_queue_worker() -> None:
     if os.environ.get("VALBOT_AUTO_WORKER", "1") != "1":
         log.info("auto-queue worker desabilitado (VALBOT_AUTO_WORKER=0)")
         return
+    # RECUPERA ÓRFÃOS — no boot nenhum processamento está ativo (o processo anterior
+    # morreu no restart), então é seguro resetar 'running' órfãos → 'queued'. Sem isso
+    # cada restart deixa exames presos em 'running' que o worker (só claima 'queued')
+    # nunca recupera → a fila trava. Best-effort, fora do loop (só no arranque).
+    try:
+        n_orfaos = db.reset_running_orfaos()
+        log.info("auto-queue boot: %d exame(s) running órfão(s) re-enfileirado(s)", n_orfaos)
+    except Exception:
+        log.exception("auto-queue boot: reset de órfãos falhou (seguindo mesmo assim)")
     if USE_MOCK_VLM:
         return
     import threading
