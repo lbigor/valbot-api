@@ -3832,14 +3832,22 @@ def dashboard_diario(
             # Janela: últimos `dias` dias (inclui hoje) por data de recebimento.
             # gs_video LIKE 'gs://%' = mesmo recorte de vídeos reais do dashboard.
             rows = c.execute(
+                # Fonte = tabela `exams` (mesma do /api/dashboard/valbot, que
+                # funciona). A v_exams_overview NÃO expõe `resultado_oficial`
+                # nem `divergente` → a query antiga estourava e caía em mock.
+                # Aqui derivamos tudo das colunas reais de exams:
+                #   oficial presente ⇔ resultado_exame ∈ {A,R} (N/NULL não conta)
+                #   auditado         ⇔ aprovado IS NOT NULL
+                #   divergente       ⇔ (resultado_exame='A') <> aprovado (só comparável)
                 "SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS dia, "
                 "COUNT(*) AS recebidos, "
-                "COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL) AS com_oficial, "
+                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R')) AS com_oficial, "
                 "COUNT(*) FILTER (WHERE aprovado IS NOT NULL) AS auditados, "
-                "COUNT(*) FILTER (WHERE divergente) AS divergentes, "
-                "COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL "
+                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') AND aprovado IS NOT NULL "
+                "                 AND ((resultado_exame = 'A') <> aprovado)) AS divergentes, "
+                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') "
                 "                 AND aprovado IS NOT NULL) AS comparaveis "
-                "FROM v_exams_overview "
+                "FROM exams "
                 "WHERE gs_video LIKE 'gs://%' "
                 "AND created_at >= (CURRENT_DATE - make_interval(days => %s - 1)) "
                 "GROUP BY 1, date_trunc('day', created_at) "
