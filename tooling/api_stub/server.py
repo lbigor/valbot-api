@@ -534,6 +534,7 @@ _SPA_SESSION_PATHS = {
     "/api/dashboard/valbot",
     "/api/dashboard/custos",
     "/api/dashboard/kpis",
+    "/api/dashboard/diario",
     "/api/v2/dashboard",
     "/api/os",
 }
@@ -3790,6 +3791,76 @@ def dashboard_valbot(
             ]
     except Exception as e:
         log.warning("dashboard_valbot falhou: %s", e)
+    return out
+
+
+@app.get("/api/dashboard/diario")
+def dashboard_diario(
+    dias: int = 30,
+    _sess: dict = Depends(require_session),
+):
+    """Série DIÁRIA real para o indicador "Auditado × Discordância".
+
+    Agrega a v_exams_overview (fonte canônica, migrations 027/028) por dia de
+    RECEBIMENTO (created_at), devolvendo, por dia:
+
+      • recebidos   — exames recebidos no dia.
+      • com_oficial — dos recebidos, quantos têm resultado oficial DEFINITIVO
+                      do examinador (resultado_oficial ∈ {A,R}; "N"/NULL não
+                      conta — a view já normaliza isso em `resultado_oficial`).
+      • auditados   — quantos a IA Val avaliou (resultado calculado presente,
+                      i.e. `aprovado IS NOT NULL`).
+      • divergentes — dos COMPARÁVEIS, quantos o oficial diverge da IA
+                      ((resultado_exame='A') <> aprovado). Usa o campo canônico
+                      `divergente` da view (só verdadeiro com oficial A/R).
+      • comparaveis — têm oficial E foram auditados (base do % de discordância).
+
+    O frontend deriva: % Auditado = auditados/recebidos; % de Discordância =
+    divergentes/comparaveis (divisão por zero → "—" na UI).
+
+    Resiliente: DB off / erro de query ⇒ {items: [], source: "mock"}. Protegido
+    por require_session, igual aos demais dashboards. NÃO altera endpoints
+    existentes — fonte e critérios espelham /api/dashboard/valbot."""
+    dias = max(1, min(int(dias), 365))
+    out: dict = {"items": [], "source": "mock"}
+    try:
+        from tooling.api_stub import db as _db
+
+        with _db._conn() as c:  # type: ignore[attr-defined]
+            if c is None:
+                return out
+            # Janela: últimos `dias` dias (inclui hoje) por data de recebimento.
+            # gs_video LIKE 'gs://%' = mesmo recorte de vídeos reais do dashboard.
+            rows = c.execute(
+                "SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS dia, "
+                "COUNT(*) AS recebidos, "
+                "COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL) AS com_oficial, "
+                "COUNT(*) FILTER (WHERE aprovado IS NOT NULL) AS auditados, "
+                "COUNT(*) FILTER (WHERE divergente) AS divergentes, "
+                "COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL "
+                "                 AND aprovado IS NOT NULL) AS comparaveis "
+                "FROM v_exams_overview "
+                "WHERE gs_video LIKE 'gs://%' "
+                "AND created_at >= (CURRENT_DATE - make_interval(days => %s - 1)) "
+                "GROUP BY 1, date_trunc('day', created_at) "
+                "ORDER BY date_trunc('day', created_at)",
+                (dias,),
+            ).fetchall()
+            out["items"] = [
+                {
+                    "dia": r[0],
+                    "recebidos": int(r[1] or 0),
+                    "com_oficial": int(r[2] or 0),
+                    "auditados": int(r[3] or 0),
+                    "divergentes": int(r[4] or 0),
+                    "comparaveis": int(r[5] or 0),
+                }
+                for r in rows
+            ]
+            out["source"] = "db"
+    except Exception as e:
+        log.warning("dashboard_diario falhou: %s", e)
+        return {"items": [], "source": "mock"}
     return out
 
 
