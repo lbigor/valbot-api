@@ -5569,8 +5569,10 @@ class _UpdateUserIn(BaseModel):
 
 
 @app.get("/api/admin/users")
-def admin_list_users(_sess: dict = Depends(require_session)):
-    """Lista os admins do painel (sem password_hash). DB off → lista vazia."""
+def admin_list_users(_sess: dict = Depends(require_admin)):
+    """Lista os usuários do painel (sem password_hash). Admin-only (is_admin):
+    antes usava require_session, o que vazava a lista de usuários/roles para
+    qualquer logado (ex.: auditor). DB off → lista vazia."""
     rows = db.list_admin_users()
     if rows is None:
         return {"count": 0, "items": [], "source": "mock"}
