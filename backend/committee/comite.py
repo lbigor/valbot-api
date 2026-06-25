@@ -219,6 +219,14 @@ CONCLUSÃO (decisão do Comitê após reavaliar com a Matriz MBEDV):
   • Se MANTÉM a discordância (exceção aplicável, evidência frágil, enquadramento
     incorreto), conclua "mantem_divergencia_com_fundamentacao" — segue ao Auditor.
 
+REGRA PÉTREA E IMUTÁVEL — LIMITE DE APROVAÇÃO = 10 PONTOS (Res. CONTRAN
+1.020/2025, MBEDV): para o `resultado_comite`, some os pontos das infrações
+confirmadas (Gravíssima=6, Grave=4, Média=2, Leve=1). Soma ≤ 10 ⇒ APROVADO.
+Só REPROVADO se a soma for > 10, OU se houver falta ELIMINATÓRIA do MBEDV
+confirmada. NUNCA crave REPROVADO com soma ≤ 10 pontos sem falta eliminatória do
+MBEDV. Não há limite menor (não existe limite 3) nem reprovação por conduta /
+imperícia reiterada.
+
 DEVOLVA SOMENTE JSON neste formato:
 {{
   "causas_identificadas": [
@@ -342,10 +350,17 @@ Para CADA infração, à luz da Matriz MBEDV abaixo:
 VEREDITO FINAL DO COMITÊ (decisão de MÁQUINA FRIA — você NÃO alucina, decide só \
 pelos pontos do examinador que se SUSTENTARAM):
   - Some os pontos das infrações que você confirmou ("sustenta"). Desconsidere as \
-"nao_sustenta" (serão excluídas).
-  - APROVADO se as faltas confirmadas NÃO atingem o limite de reprovação da \
-rubrica; REPROVADO se atingem (qualquer falta ELIMINATÓRIA confirmada, ou o \
-somatório de pontos alcança o limite).
+"nao_sustenta" (serão excluídas). Pesos (Res. CONTRAN 1.020/2025): Gravíssima=6, \
+Grave=4, Média=2, Leve=1.
+  - REGRA PÉTREA E IMUTÁVEL — LIMITE DE APROVAÇÃO = 10 PONTOS (Res. CONTRAN \
+1.020/2025, MBEDV): se a soma dos pontos das infrações sustentadas for MENOR OU \
+IGUAL A 10 (≤ 10) ⇒ APROVADO. Só REPROVADO se a soma for MAIOR QUE 10 (> 10), OU \
+se houver uma falta ELIMINATÓRIA expressamente prevista no MBEDV confirmada. \
+NUNCA, em hipótese alguma, crave REPROVADO com soma ≤ 10 pontos sem uma falta \
+eliminatória do MBEDV. Não invente limite menor (não existe limite 3 nem 5), não \
+reprove por "imperícia reiterada", conduta, instabilidade ou repetição da mesma \
+falta — nada disso reprova se a soma é ≤ 10. Exemplo: 8 pontos (uma Gravíssima + \
+uma Média), sem falta eliminatória ⇒ APROVADO.
   - Esse é o ÚNICO veredito que você emite: APROVADO ou REPROVADO. NÃO existe \
 outro. NÃO diga se "concorda" ou "diverge" do examinador — essa relação é \
 DERIVADA automaticamente comparando o seu A/R com o dele. Apenas crave o A/R \

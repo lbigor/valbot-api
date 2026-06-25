@@ -407,6 +407,13 @@ Infração que não passa em todas as regras → rebaixada pra `needs_review`, *
 
 ## 12. Camada 9 — Scoring (aplicação da rubrica)
 
+> ⚠️ **VIGENTE: apenas Res. CONTRAN 1.020/2025 (MBEDV), LIMITE DE APROVAÇÃO = 10 PONTOS.**
+> A Res. 789/2020 e o antigo "limite 3" foram **descontinuados** deste pipeline em
+> 2026-04-25 (ver `src/rubrics/taxonomia.py`). Toda menção abaixo à 789/2020 e ao
+> limite 3 é **histórica** — não reflete a regra em vigor. Hoje:
+> `aprovado = (pontuacao_total <= 10)`; reprovação só por soma > 10 OU falta
+> eliminatória do MBEDV. Pesos 1.020/2025: Gravíssima=6, Grave=4, Média=2, Leve=1.
+
 **Código**: `src/rubrics/taxonomia.py` + `src/reporting/adapter.py` (já implementado).
 
 **Input**: `ConfirmedInfraction[]` da camada 8 + `Rubrica` escolhida + `limite_pontuacao`.
@@ -427,7 +434,7 @@ Infração que não passa em todas as regras → rebaixada pra `needs_review`, *
 | MEDIA | 2 pts | 2 pts |
 | LEVE | 1 pt | 1 pt |
 
-**Limite default**: 3 pts para Res. 789/2020. Configurável via `metadata.limite_pontuacao`.
+**Limite VIGENTE**: 10 pts (Res. CONTRAN 1.020/2025 — `LIMITE_APROVACAO=10`). O "limite 3 pts da Res. 789/2020" é **histórico/descontinuado**, mantido na tabela acima só como referência da rubrica antiga.
 
 **Output**: `LaudoContext` (ver `src/reporting/schema.py`) — dict pronto pra ir pro template.
 

@@ -70,6 +70,13 @@ infrações de trânsito pontuáveis:
 
 **`aprovado = (pontuacao_total <= 10)`** — sempre.
 
+REGRA PÉTREA E IMUTÁVEL: o LIMITE DE APROVAÇÃO é 10 PONTOS (Res. CONTRAN
+1.020/2025). Soma das infrações de trânsito sustentadas ≤ 10 ⇒ APROVADO; > 10 ⇒
+REPROVADO. A reprovação só pode vir de (a) soma > 10 pontos OU (b) falta
+ELIMINATÓRIA expressamente prevista no MBEDV. NUNCA marque `aprovado = false`
+com ≤ 10 pontos sem uma falta eliminatória do MBEDV. Não existe limite menor
+(não há limite 3 nem 5 da antiga Res. 789/2020 — descontinuada).
+
 NÃO existe falta "eliminatória automática" nem reprovação por conduta no modelo
 1.020/2025. NUNCA marque `aprovado = false` por desacato, instabilidade
 emocional, imperícia reiterada, comportamento ou qualquer motivo que não seja a
