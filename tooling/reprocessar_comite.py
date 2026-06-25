@@ -37,6 +37,15 @@ vídeo nem chama o Motor de Detecção.
     append-only).
   • ``--dry-run`` é o PADRÃO (só lista o que faria). ``--apply`` executa de fato.
   • ``--limite N`` controla o tamanho do lote (default 20).
+  • EXECUÇÃO EM LOTE CONCORRENTE: os exames selecionados são processados em
+    PARALELO num ``ThreadPoolExecutor`` (igual ao worker de análise), porque o
+    gargalo é a chamada Vertex/Gemini do Comitê (~10-40s por exame). Concorrência
+    via ``VALBOT_COMITE_CONCURRENCY`` (default 4, conservador p/ não estourar a
+    quota do Vertex) ou ``--concorrencia N`` (sobrepõe o env). A SELEÇÃO de
+    candidatos e a IDEMPOTÊNCIA não mudam — só a EXECUÇÃO virou concorrente.
+    Thread-safety: ``backend.core.db`` abre uma conexão autocommit nova por
+    chamada (sem conexão global), então cada thread grava na sua própria conexão
+    e exames distintos são independentes — ver ``_reprocessar_um_safe``.
 
 ⚠️  DEPENDE DA QUOTA DO VERTEX. Este script só tem EFEITO REAL de reanálise quando
 a quota do Vertex AI/Gemini estiver disponível. Sob 429/403 o ``revisar`` cai no
@@ -58,6 +67,13 @@ USO
     # 3) inclui também as OS travadas no estágio 'comite' (gera novo laudo):
     python -m tooling.reprocessar_comite --apply --limite 20 --incluir-comite
 
+    # 4) FORÇA re-rodar TODOS os divergentes (mesmo os que já têm laudo) — usado
+    #    para reprocessar os 148 com o prompt novo (veredito A/R do Comitê),
+    #    em LOTE concorrente de 8 chamadas Vertex simultâneas:
+    python -m tooling.reprocessar_comite --apply --limite 200 --reprocessar-todos \
+        --concorrencia 8
+    #    (ou: VALBOT_COMITE_CONCURRENCY=8 python -m tooling.reprocessar_comite ...)
+
 Requer ``DATABASE_URL`` apontando para o Postgres do Valbot (ver memória do
 projeto: container ``valbot-postgres`` na VM ``valbot-prod``). Sem DB, sai no-op.
 """
@@ -66,6 +82,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from backend import persistence
 from backend.committee import comite as comite_engine
@@ -88,16 +107,23 @@ log = logging.getLogger("valbot.reprocessar_comite")
 # ---------------------------------------------------------------------------
 
 
-def _selecionar(limite: int, incluir_comite: bool) -> list[dict]:
+def _selecionar(limite: int, incluir_comite: bool, forcar_todos: bool = False) -> list[dict]:
     """Exames divergentes que precisam de (re)disparo do Comitê.
 
     Por padrão: ``divergente AND NOT comite_concluido`` — as divergências que
     foram para 'auditoria' sem passar pelo Comitê. Com ``incluir_comite``,
     também os travados em ``stage = 'comite'`` (já têm laudo; reprocessa).
 
+    Com ``forcar_todos`` (flag ``--reprocessar-todos``/``--forcar``): RE-processa
+    TODOS os divergentes, INCLUSIVE os que JÁ têm laudo de Comitê — necessário
+    para re-rodar os exames com um PROMPT NOVO (ex.: o veredito A/R do Comitê).
+    Gera um NOVO laudo por exame (``exam_comite_laudos`` é append-only).
+
     Mais antigos primeiro (created_at ASC) — a fila mais velha é a mais urgente.
     """
-    if incluir_comite:
+    if forcar_todos:
+        where = "divergente"
+    elif incluir_comite:
         where = "divergente AND (NOT comite_concluido OR stage = 'comite')"
     else:
         where = "divergente AND NOT comite_concluido"
@@ -314,6 +340,37 @@ def _reprocessar_um(exame: dict, *, apply: bool) -> dict:
     return resumo
 
 
+def _reprocessar_um_safe(exame: dict, *, apply: bool) -> dict:
+    """Wrapper que NUNCA lança — espelha ``_process_one_claimed`` do worker de
+    análise (tooling/api_stub/server.py): captura qualquer exceção e devolve um
+    resumo com ``acao='ERRO'`` para que um exame ruim não derrube o
+    ThreadPoolExecutor do lote.
+
+    THREAD-SAFETY: a chamada inteira (Comitê Vertex + gravações no banco) roda
+    concorrente. Isto é seguro porque ``backend.core.db`` abre uma conexão
+    psycopg autocommit NOVA por chamada (sem conexão global compartilhada, sem
+    transação cruzando exames) — cada thread, ao chamar ``db.execute``/
+    ``fetch_*`` via persistence/committee/ordens, usa a sua própria conexão de
+    vida curta. As escritas de exames distintos são independentes (cada exame
+    tem o seu ``exam_id``/``hash``), então paralelizar ponta-a-ponta preserva
+    exatamente a semântica do loop sequencial. O único recurso realmente
+    contendido é a quota do Vertex, limitada pelo nº de workers (concorrência)."""
+    try:
+        return _reprocessar_um(exame, apply=apply)
+    except Exception as e:  # noqa: BLE001 — um exame ruim não derruba o lote
+        log.exception("falha ao reprocessar exam_id=%s", exame.get("id"))
+        return {
+            "exam_id": exame.get("id"),
+            "hash": exame.get("hash"),
+            "candidato": exame.get("candidato_nome"),
+            "stage_antes": exame.get("stage"),
+            "tipo_divergencia": "?",
+            "n_infracoes": 0,
+            "acao": "ERRO",
+            "erro": str(e),
+        }
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -348,6 +405,29 @@ def main(argv: list[str] | None = None) -> int:
             "laudo) — gera um NOVO laudo. Sem isto, só os divergentes sem Comitê."
         ),
     )
+    parser.add_argument(
+        "--reprocessar-todos",
+        "--forcar",
+        dest="forcar_todos",
+        action="store_true",
+        help=(
+            "FORÇA o reprocessamento de TODOS os exames divergentes, inclusive os "
+            "que JÁ têm laudo de Comitê (ignora 'comite_concluido') — necessário "
+            "para re-rodar os 148 com o prompt NOVO (veredito A/R). Gera um novo "
+            "laudo por exame. Default: NÃO forçar (só pendentes)."
+        ),
+    )
+    parser.add_argument(
+        "--concorrencia",
+        type=int,
+        default=None,
+        help=(
+            "nº de exames processados em PARALELO (ThreadPoolExecutor). Sobrepõe "
+            "o env VALBOT_COMITE_CONCURRENCY (default 4 — conservador p/ não "
+            "estourar a quota do Vertex). Cada exame faz 1 chamada Vertex/Gemini "
+            "(~10-40s), então a concorrência acelera muito o lote."
+        ),
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="loga cada exame em detalhe.")
     args = parser.parse_args(argv)
 
@@ -364,11 +444,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    candidatos = _selecionar(args.limite, args.incluir_comite)
+    candidatos = _selecionar(args.limite, args.incluir_comite, args.forcar_todos)
     modo = "APPLY" if args.apply else "DRY-RUN"
     print(
         f"[reprocessar_comite] modo={modo} limite={args.limite} "
-        f"incluir_comite={args.incluir_comite} -> {len(candidatos)} exame(s).",
+        f"incluir_comite={args.incluir_comite} forcar_todos={args.forcar_todos} "
+        f"-> {len(candidatos)} exame(s).",
         flush=True,
     )
     if not candidatos:
@@ -382,30 +463,80 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
+    # Concorrência: --concorrencia (CLI) sobrepõe VALBOT_COMITE_CONCURRENCY (env),
+    # default 4 (conservador p/ não estourar a quota do Vertex). Espelha o knob
+    # VALBOT_BATCH_CONCURRENCY do worker de análise.
+    if args.concorrencia is not None:
+        concurrency = max(1, args.concorrencia)
+    else:
+        concurrency = max(1, int(os.environ.get("VALBOT_COMITE_CONCURRENCY", "4") or "4"))
+    # Não adianta abrir mais threads que exames no lote.
+    concurrency = min(concurrency, len(candidatos))
+    print(
+        f"[reprocessar_comite] EXECUÇÃO EM LOTE CONCORRENTE: "
+        f"{len(candidatos)} submetido(s), concorrência={concurrency} "
+        f"(VALBOT_COMITE_CONCURRENCY / --concorrencia).",
+        flush=True,
+    )
+
     reprocessados = 0
     determ = 0
-    for i, exame in enumerate(candidatos, 1):
-        try:
-            r = _reprocessar_um(exame, apply=args.apply)
-        except Exception as e:  # noqa: BLE001 — um exame ruim não derruba o lote
-            log.exception("falha ao reprocessar exam_id=%s", exame.get("id"))
-            print(f"  [{i}/{len(candidatos)}] ERRO exam={exame.get('id')}: {e}", flush=True)
-            continue
-        if args.apply and r.get("acao") == "REPROCESSADO":
-            reprocessados += 1
-            if "deterministico" in (r.get("modo") or ""):
-                determ += 1
-        print(
-            f"  [{i}/{len(candidatos)}] {r.get('acao')} "
-            f"exam={r['exam_id'][:8]} stage={r['stage_antes']} "
-            f"div={r['tipo_divergencia']} infr={r['n_infracoes']}"
-            + (
-                f" modo={r.get('modo')} concl={r.get('conclusao_comite')} excl={r.get('exclusoes')}"
-                if r.get("acao") == "REPROCESSADO"
-                else ""
-            ),
-            flush=True,
-        )
+    erros = 0
+    pulados = 0
+    total = len(candidatos)
+    # Serializa apenas a impressão/contagem; o processamento (Vertex + writes) é
+    # paralelo. As escritas no banco são thread-safe por construção (conexão
+    # autocommit nova por chamada em backend.core.db) — ver _reprocessar_um_safe.
+    lock = threading.Lock()
+    contador = {"i": 0}
+
+    def _trabalho(exame: dict) -> dict:
+        nonlocal reprocessados, determ, erros, pulados
+        r = _reprocessar_um_safe(exame, apply=args.apply)
+        with lock:
+            contador["i"] += 1
+            i = contador["i"]
+            acao = r.get("acao")
+            if args.apply and acao == "REPROCESSADO":
+                reprocessados += 1
+                if "deterministico" in (r.get("modo") or ""):
+                    determ += 1
+            elif acao == "ERRO":
+                erros += 1
+            elif acao not in ("REPROCESSADO", "DRY_RUN (nada gravado)"):
+                pulados += 1
+            exam_id = r.get("exam_id") or "????????"
+            linha = (
+                f"  [{i}/{total}] {acao} "
+                f"exam={str(exam_id)[:8]} stage={r.get('stage_antes')} "
+                f"div={r.get('tipo_divergencia')} infr={r.get('n_infracoes')}"
+            )
+            if acao == "REPROCESSADO":
+                linha += (
+                    f" modo={r.get('modo')} concl={r.get('conclusao_comite')} "
+                    f"excl={r.get('exclusoes')}"
+                )
+            elif acao == "ERRO":
+                linha += f" ERRO: {r.get('erro')}"
+            print(linha, flush=True)
+            if args.verbose:
+                tag = "OK" if acao in ("REPROCESSADO", "DRY_RUN (nada gravado)") else acao
+                log.info("exam=%s %s", str(exam_id)[:12], tag)
+        return r
+
+    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="comite-batch") as ex:
+        futures = [ex.submit(_trabalho, exame) for exame in candidatos]
+        for fut in futures:
+            # _trabalho/_reprocessar_um_safe nunca lançam; result() só sincroniza.
+            fut.result()
+
+    print(
+        f"[reprocessar_comite] LOTE: {total} submetido(s), "
+        f"{reprocessados} ok, {erros} erro(s)"
+        + (f", {pulados} pulado(s)" if pulados else "")
+        + ".",
+        flush=True,
+    )
 
     if args.apply:
         print(
