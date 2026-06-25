@@ -38,16 +38,35 @@ from backend.models import (
 log = logging.getLogger("valbot.comite")
 
 
-def _decidir_divergencia_pos_comite(raw: dict, tipo_pre: TipoDivergencia) -> TipoDivergencia:
-    """Interpreta a conclusão do Comitê para decidir a divergência PÓS-reavaliação.
+def _derivar_relacao_comite(
+    resultado_comite: str | None,
+    resultado_examinador: str | None,
+    tipo_pre: TipoDivergencia,
+) -> tuple[str, TipoDivergencia]:
+    """DERIVA a relação do Comitê (③) a partir do A/R do Comitê vs o A/R do
+    Examinador (①) — fonte ÚNICA de verdade é o ``resultado_comite``.
 
-    "concorda_com_examinador" → SEM_DIVERGENCIA (resolvida, não entra na fila).
-    Qualquer outra conclusão → mantém o tipo original (segue ao Auditor).
+    Regra de negócio (Igor, dura): cada nível da Cadeia do Resultado produz
+    SOMENTE Aprovado (A) ou Reprovado (R). Os rótulos de relação ("concorda c/
+    examinador" / "mantém divergência") NÃO são campos próprios do Comitê — são
+    DERIVADOS da comparação dos A/R. Isso elimina a contradição histórica
+    (comitê gravando REPROVADO mas conclusão "concorda com examinador APROVADO").
+
+    Devolve ``(conclusao_comite, tipo_divergencia_pos_comite)`` coerentes com o
+    A/R:
+      • comitê == examinador → "concorda_com_examinador" + SEM_DIVERGENCIA;
+      • comitê != examinador → "mantem_divergencia_com_fundamentacao" + tipo_pre;
+      • A/R do comitê ausente (não cravou) ou examinador ausente → não dá pra
+        comparar: mantém o tipo de divergência original e marca a conclusão como
+        "aguardando" (estado pendente — NÃO um terceiro veredito).
     """
-    conclusao = (raw.get("conclusao_comite") or "").lower()
-    if "concord" in conclusao and "examinador" in conclusao:
-        return TipoDivergencia.SEM_DIVERGENCIA
-    return tipo_pre
+    rc = (resultado_comite or "").strip().upper()
+    re_exam = _parse_resultado_comite(resultado_examinador)
+    if rc not in ("A", "R") or re_exam is None:
+        return "aguardando", tipo_pre
+    if rc == re_exam:
+        return "concorda_com_examinador", TipoDivergencia.SEM_DIVERGENCIA
+    return "mantem_divergencia_com_fundamentacao", tipo_pre
 
 
 def _parse_resultado_comite(valor) -> str | None:
@@ -65,17 +84,6 @@ def _parse_resultado_comite(valor) -> str | None:
         return "A"
     if s.startswith("reprov") or s == "r":
         return "R"
-    return None
-
-
-def _resultado_de_conclusao(conclusao: str | None, resultado_examinador: str | None) -> str | None:
-    """Coerência mínima quando o modelo não cravou resultado_comite explícito:
-    se o Comitê CONCORDA com o examinador, o veredito do Comitê BATE com o do
-    examinador ('A'/'R'). Senão, None (sem como inferir com segurança)."""
-    if not conclusao:
-        return None
-    if "concord" in conclusao.lower() and "examinador" in conclusao.lower():
-        return _parse_resultado_comite(resultado_examinador)
     return None
 
 
@@ -194,20 +202,25 @@ def _laudo_deterministico(
         if comparacao.tipo_divergencia == TipoDivergencia.SEM_DIVERGENCIA
         else None
     )
+    # conclusao_comite e tipo_divergencia_pos_comite são DERIVADOS do A/R do Comitê
+    # vs o A/R do examinador — nunca cravados de forma a contradizer o veredito.
+    conclusao, tipo_pos = _derivar_relacao_comite(
+        resultado_comite, res_examinador, comparacao.tipo_divergencia
+    )
 
     return LaudoComite(
         exame_id=exame_id,
         comite_versao=settings.comite_versao + "+deterministico",
         tempo_processamento_seg=round(tempo, 2),
         tipo_divergencia_analisada=comparacao.tipo_divergencia,
-        tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
+        tipo_divergencia_pos_comite=tipo_pos,
         causas_identificadas=causas,
         verificacoes_executadas=verifs,
         comentarios_examinador_detectados=comentarios,
         recomendacao_para_auditor=(
             "Revisar os segmentos das infrações apontadas; conferir exceções do MBEDV."
         ),
-        conclusao_comite="manter_divergencia_com_fundamentacao",
+        conclusao_comite=conclusao,
         resultado_comite=resultado_comite,
     )
 
@@ -320,9 +333,10 @@ pelos pontos do examinador que se SUSTENTARAM):
   - APROVADO se as faltas confirmadas NÃO atingem o limite de reprovação da \
 rubrica; REPROVADO se atingem (qualquer falta ELIMINATÓRIA confirmada, ou o \
 somatório de pontos alcança o limite).
-  - Esse é o veredito do COMITÊ — será comparado com o do examinador. Se você \
-CONCORDA com o examinador, o veredito deve BATER com o dele; se MANTÉM \
-divergência, reflita a posição que você sustenta.
+  - Esse é o ÚNICO veredito que você emite: APROVADO ou REPROVADO. NÃO existe \
+outro. NÃO diga se "concorda" ou "diverge" do examinador — essa relação é \
+DERIVADA automaticamente comparando o seu A/R com o dele. Apenas crave o A/R \
+e fundamente.
 
 DEVOLVA SOMENTE JSON:
 {{
@@ -481,27 +495,24 @@ def _laudo_de_justificativa(
         for i in infs
     ]
     sustenta = sum(1 for i in infs if str(i.get("veredicto")) == "sustenta")
-    conclusao = (
-        "concorda_com_examinador"
-        if infs and sustenta == len(infs)
-        else "manter_divergencia_com_fundamentacao"
-    )
-    # Veredito explícito do Comitê (③): primeiro tenta o que o modelo cravou
-    # ("resultado_comite"); se não veio, deriva pela coerência (concorda → bate
-    # com o examinador). Última garantia: sem infração SUSTENTADA → APROVADO.
+    # Veredito explícito do Comitê (③) — ÚNICA fonte de verdade do nível: primeiro
+    # o que o modelo cravou ("resultado_comite" A/R); última garantia: sem infração
+    # SUSTENTADA → APROVADO (máquina fria não pode reprovar sem falta confirmada).
     res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
     resultado_comite = _parse_resultado_comite(raw.get("resultado_comite"))
-    if resultado_comite is None:
-        resultado_comite = _resultado_de_conclusao(conclusao, res_examinador)
     if resultado_comite is None and infs and sustenta == 0:
-        # Nenhuma infração se sustentou → o Comitê só pode cravar APROVADO.
         resultado_comite = "A"
+    # conclusao_comite e tipo_divergencia_pos_comite NÃO são cravados pelo modelo —
+    # são DERIVADOS do A/R do Comitê vs o A/R do examinador (coerência garantida).
+    conclusao, tipo_pos = _derivar_relacao_comite(
+        resultado_comite, res_examinador, comparacao.tipo_divergencia
+    )
     return LaudoComite(
         exame_id=exame_id,
         comite_versao=settings.comite_versao + "+justificativa",
         tempo_processamento_seg=round(tempo, 2),
         tipo_divergencia_analisada=comparacao.tipo_divergencia,
-        tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
+        tipo_divergencia_pos_comite=tipo_pos,
         causas_identificadas=causas,
         verificacoes_executadas=verifs,
         comentarios_examinador_detectados=[],
@@ -512,14 +523,18 @@ def _laudo_de_justificativa(
 
 
 def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float) -> LaudoComite:
+    # Veredito A/R do Comitê = ÚNICA fonte; conclusao/tipo_divergencia_pos DERIVADOS.
+    res_examinador = comparacao.resultado_oficial.value if comparacao.resultado_oficial else None
+    resultado_comite = _parse_resultado_comite(raw.get("resultado_comite"))
+    conclusao, tipo_pos = _derivar_relacao_comite(
+        resultado_comite, res_examinador, comparacao.tipo_divergencia
+    )
     return LaudoComite(
         exame_id=exame_id,
         comite_versao=settings.comite_versao,
         tempo_processamento_seg=round(tempo, 2),
         tipo_divergencia_analisada=comparacao.tipo_divergencia,
-        tipo_divergencia_pos_comite=_decidir_divergencia_pos_comite(
-            raw, comparacao.tipo_divergencia
-        ),
+        tipo_divergencia_pos_comite=tipo_pos,
         causas_identificadas=[
             CausaIdentificada(
                 causa=c.get("causa", ""),
@@ -549,14 +564,8 @@ def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float
             if isinstance(c, dict)
         ],
         recomendacao_para_auditor=raw.get("recomendacao_para_auditor", ""),
-        conclusao_comite=raw.get("conclusao_comite", "manter_divergencia_com_fundamentacao"),
-        resultado_comite=(
-            _parse_resultado_comite(raw.get("resultado_comite"))
-            or _resultado_de_conclusao(
-                raw.get("conclusao_comite"),
-                comparacao.resultado_oficial.value if comparacao.resultado_oficial else None,
-            )
-        ),
+        conclusao_comite=conclusao,
+        resultado_comite=resultado_comite,
     )
 
 

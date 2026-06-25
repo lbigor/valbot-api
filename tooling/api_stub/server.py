@@ -6791,6 +6791,31 @@ def _res_label(v) -> str | None:
     return None
 
 
+def _ar_ou_aguardando(v) -> str:
+    """Normaliza qualquer veredito → 'A' | 'R' | 'aguardando'.
+
+    Regra de negócio (Igor, dura): cada nível da Cadeia do Resultado produz
+    SOMENTE Aprovado (A) ou Reprovado (R). 'aguardando' é o ESTADO PENDENTE
+    (nível ainda não decidido), NÃO um terceiro veredito. Reusa _res_label
+    (que já cobre 'A'/'R', bool, 'aprovado'/'reprovado', 'homologar', etc.).
+    """
+    lbl = _res_label(v)
+    if lbl == "APROVADO":
+        return "A"
+    if lbl == "REPROVADO":
+        return "R"
+    return "aguardando"
+
+
+def _relacao_ar(a: str, b: str) -> str | None:
+    """DERIVA a relação entre dois vereditos A/R: 'concorda' se iguais, 'diverge'
+    se diferentes, None se algum dos dois ainda está 'aguardando' (sem como
+    comparar). NÃO inventa — pendente vira None."""
+    if a == "aguardando" or b == "aguardando":
+        return None
+    return "concorda" if a == b else "diverge"
+
+
 def _estado_fluxo(
     *,
     resultado_oficial,
@@ -6855,6 +6880,53 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "fonte": "placeholder",
             # Sem dossiê não há veredito oficial → fluxo aguardando o oficial.
             "estado_fluxo": "aguardando_oficial",
+            # Cadeia do Resultado: 5 níveis, todos 'aguardando' sem dossiê. Cada
+            # nível produz SÓ A/R; 'aguardando' = pendente (não é veredito). As
+            # relações são DERIVADAS da comparação dos A/R → None enquanto pendente.
+            "cadeia_resultado": {
+                "niveis": [
+                    {
+                        "ordem": 1,
+                        "nivel": "examinador",
+                        "rotulo": "Examinador",
+                        "veredito": "aguardando",
+                        "decidido_em": None,
+                    },
+                    {
+                        "ordem": 2,
+                        "nivel": "auditor_val_ia",
+                        "rotulo": "Auditor Val (IA)",
+                        "veredito": "aguardando",
+                        "decidido_em": None,
+                        "relacao_examinador": None,
+                    },
+                    {
+                        "ordem": 3,
+                        "nivel": "comite_ia",
+                        "rotulo": "Comitê de IA",
+                        "veredito": "aguardando",
+                        "decidido_em": None,
+                        "relacao_examinador": None,
+                    },
+                    {
+                        "ordem": 4,
+                        "nivel": "auditor",
+                        "rotulo": "Auditor",
+                        "veredito": "aguardando",
+                        "decidido_em": None,
+                        "relacao_comite": None,
+                        "relacao_examinador": None,
+                    },
+                    {
+                        "ordem": 5,
+                        "nivel": "supervisor",
+                        "rotulo": "Supervisor",
+                        "veredito": "aguardando",
+                        "decidido_em": None,
+                        "relacao_auditor": None,
+                    },
+                ],
+            },
             "blocos": {
                 "1_identificacao": {},
                 "2_candidato": {},
@@ -6984,16 +7056,12 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
     )
 
     # --- Vereditos A/R normalizados (EXIBIÇÃO; não substituem campos existentes) -
-    # Bloco 9: o Comitê não emite veredito próprio — deriva-se da conclusão.
-    #   concorda_com_examinador          → segue o resultado oficial (bloco 4).
-    #   manter_divergencia_com_fundamentacao → o oposto (o que a IA sustenta, b.5).
-    _concl_comite = str(comite.get("conclusao_comite") or "").strip().lower()
-    if _concl_comite.startswith("concorda"):
-        _veredito_comite = _res_label(resultado_oficial)
-    elif _concl_comite.startswith("manter_diverg") or "diverg" in _concl_comite:
-        _veredito_comite = _res_label(resultado_calculado)
-    else:
-        _veredito_comite = None
+    # Bloco 9: o Comitê (③) emite veredito PRÓPRIO A/R — fonte ÚNICA é
+    # exam_comite_laudos.resultado_comite. A relação (concorda/diverge) é DERIVADA
+    # comparando esse A/R com o do examinador (①); NÃO se lê mais conclusao_comite
+    # como se fosse veredito (era a raiz da contradição "REPROVADO mas concorda
+    # com examinador APROVADO"). Sem resultado_comite cravado → 'aguardando'.
+    _veredito_comite = _res_label(comite.get("resultado_comite"))
 
     # Bloco 10: veredito do auditor = resultado_final (já 'aprovado'/'reprovado').
     _veredito_auditor = _res_label(parecer.get("resultado_final"))
@@ -7122,13 +7190,18 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
             "encaminhamento": divergencia.get("encaminhamento"),
             "detalhes": divergencia.get("detalhes"),
         },
-        # 9 — COMITÊ DE IA. veredito_comite ACRESCENTADO (derivado, EXIBIÇÃO);
-        # conclusao_comite e demais campos preservados intactos.
+        # 9 — COMITÊ DE IA. veredito_comite = A/R PRÓPRIO (resultado_comite, EXIBIÇÃO).
+        # relacao_examinador DERIVADA (③ vs ①): concorda se A/R bate, diverge se não.
+        # Os campos crus (resultado_comite/conclusao_comite/...) preservados intactos.
         # decidido_em (③) ACRESCENTADO — etapa da cadeia do resultado.
         "9_comite_ia": {
             **comite,
             **comite_meta,
             "veredito_comite": _veredito_comite,
+            "relacao_examinador": _relacao_ar(
+                _ar_ou_aguardando(comite.get("resultado_comite")),
+                _ar_ou_aguardando(resultado_oficial),
+            ),
             "decidido_em": _decidido_em_comite,
         },
         # 10 — PARECER AUDITOR. veredito_auditor + decidido_em (④) ACRESCENTADOS;
@@ -7182,12 +7255,78 @@ def _laudo_blocos_14_2(hash_: str) -> dict:
         gate_rejected=e.get("gate_rejected"),
         layout_confianca=e.get("layout_confianca"),
     )
+    # --- CADEIA DO RESULTADO: 5 NÍVEIS, cada um SÓ A/R (ou 'aguardando') ---------
+    # Regra de negócio (Igor, dura): cada nível produz SOMENTE Aprovado (A) ou
+    # Reprovado (R). Não há outro veredito; nível ainda não decidido = 'aguardando'
+    # (estado pendente, NÃO um terceiro veredito). As relações (concorda/diverge)
+    # são DERIVADAS da comparação dos A/R — nunca campos próprios do modelo.
+    #
+    # Fonte do A/R de cada nível (sem inventar):
+    #   ① Examinador      = resultado_oficial (exams.resultado_exame, A/R)
+    #   ② Auditor Val (IA)= e.aprovado (true=A / false=R)
+    #   ③ Comitê          = comite.resultado_comite (A/R, laudo mais recente)
+    #   ④ Auditor         = parecer.resultado_final (A/R)
+    #   ⑤ Supervisor      = _veredito_supervisor (decisão final derivada acima)
+    _n1 = _ar_ou_aguardando(resultado_oficial)
+    _n2 = _ar_ou_aguardando(e.get("aprovado"))
+    _n3 = _ar_ou_aguardando(comite.get("resultado_comite"))
+    _n4 = _ar_ou_aguardando(parecer.get("resultado_final"))
+    _n5 = _ar_ou_aguardando(_veredito_supervisor)
+    cadeia_resultado = {
+        "niveis": [
+            {
+                "ordem": 1,
+                "nivel": "examinador",
+                "rotulo": "Examinador",
+                "veredito": _n1,
+                "decidido_em": _decidido_em_examinador,
+            },
+            {
+                "ordem": 2,
+                "nivel": "auditor_val_ia",
+                "rotulo": "Auditor Val (IA)",
+                "veredito": _n2,
+                "decidido_em": _decidido_em_ia,
+                # ② vs ① — origem da divergência que aciona o Comitê.
+                "relacao_examinador": _relacao_ar(_n2, _n1),
+            },
+            {
+                "ordem": 3,
+                "nivel": "comite_ia",
+                "rotulo": "Comitê de IA",
+                "veredito": _n3,
+                "decidido_em": _decidido_em_comite,
+                # ③ vs ① — "concorda com examinador" / "mantém divergência" DERIVADO.
+                "relacao_examinador": _relacao_ar(_n3, _n1),
+            },
+            {
+                "ordem": 4,
+                "nivel": "auditor",
+                "rotulo": "Auditor",
+                "veredito": _n4,
+                "decidido_em": _decidido_em_auditor,
+                # ④ vs ③ — auditor concorda ou diverge do Comitê.
+                "relacao_comite": _relacao_ar(_n4, _n3),
+                "relacao_examinador": _relacao_ar(_n4, _n1),
+            },
+            {
+                "ordem": 5,
+                "nivel": "supervisor",
+                "rotulo": "Supervisor",
+                "veredito": _n5,
+                "decidido_em": _decidido_em_supervisor,
+                # ⑤ vs ④ — homologa (concorda) ou reforma (diverge) o Auditor.
+                "relacao_auditor": _relacao_ar(_n5, _n4),
+            },
+        ],
+    }
     laudo = {
         "exame_hash": hash_,
         "laudo_versao": "laudo/2.0",
         "emitido_em": datetime.utcnow().isoformat() + "Z",
         "fonte": "db",
         "estado_fluxo": estado_fluxo,
+        "cadeia_resultado": cadeia_resultado,
         "blocos": blocos,
     }
     # Integridade — hash do conteúdo (reusa o helper do backend.reporting.laudo).

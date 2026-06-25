@@ -1621,7 +1621,8 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                     """
                     SELECT causas_identificadas, verificacoes_executadas,
                            comentarios_examinador,
-                           recomendacao_para_auditor, conclusao_comite, created_at
+                           recomendacao_para_auditor, conclusao_comite,
+                           resultado_comite, tipo_divergencia_pos_comite, created_at
                     FROM exam_comite_laudos
                     WHERE exam_id = (SELECT id FROM exams WHERE hash = %s)
                     ORDER BY created_at DESC LIMIT 1
@@ -1635,6 +1636,8 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                         "comentarios_examinador",
                         "recomendacao_para_auditor",
                         "conclusao_comite",
+                        "resultado_comite",
+                        "tipo_divergencia_pos_comite",
                         "created_at",
                     ]
                     out["laudo_comite"] = dict(zip(ccols, crow))
