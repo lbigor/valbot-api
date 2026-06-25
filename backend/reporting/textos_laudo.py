@@ -156,7 +156,7 @@ def recomendacao_encaminhamento(
     if (tipo_divergencia or "").startswith("1") or "resultado" in (tipo_divergencia or ""):
         prioridade = "alta"
     return {
-        "fluxo": "COMITÊ DE IA → AUDITOR → SUPERVISOR (fluxo de 4 níveis)",
+        "fluxo": "COMITÊ VAL → AUDITOR → SUPERVISOR (fluxo de 4 níveis)",
         "razao": razao,
         "prioridade": prioridade,
         "sla": "Parecer do Auditor em 48h, decisão final do Supervisor em mais 24h.",
