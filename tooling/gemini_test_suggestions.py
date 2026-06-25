@@ -23,7 +23,7 @@ from vertexai.generative_models import GenerativeModel, Part
 
 PROJECT_ID = os.environ.get("VERTEX_PROJECT", "project-308f1fa8-a301-49e6-a69")
 LOCATION = os.environ.get("VERTEX_LOCATION", "global")
-MODEL_NAME = os.environ.get("VERTEX_MODEL", "gemini-3.1-pro-preview")
+MODEL_NAME = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 
 SYSTEM_PROMPT = """\
 Você é um QA Sênior especializado em testes E2E de SPAs React. Vai receber

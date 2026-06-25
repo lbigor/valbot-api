@@ -16,7 +16,9 @@ vertexai.init(
     project=os.environ.get("VERTEX_PROJECT", "project-308f1fa8-a301-49e6-a69"),
     location=os.environ.get("VERTEX_LOCATION", "global"),
 )
-model = GenerativeModel("gemini-3.1-pro-preview")  # único modelo confirmado em location=global
+model = GenerativeModel(
+    "gemini-2.5-pro"
+)  # GA — requer location regional (ex.: us-central1), nao global
 
 PROMPT = """TAREFA UNICA: validar se este video segue o padrao DETRAN.
 
@@ -77,7 +79,7 @@ def check_one(h: str) -> dict:
     if u is not None:
         pt = int(getattr(u, "prompt_token_count", 0) or 0)
         ot = int(getattr(u, "candidates_token_count", 0) or 0)
-        # gemini-3.1-pro-preview: $1.25/1M in + $5/1M out (tier1)
+        # gemini-2.5-pro: $1.25/1M in + $5/1M out (tier1)
         d["_cost"] = round((pt * 1.25 + ot * 5.0) / 1_000_000, 5)
         d["_elapsed"] = round(el, 1)
     return d

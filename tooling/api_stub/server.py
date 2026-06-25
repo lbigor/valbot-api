@@ -1524,7 +1524,7 @@ async def create_exam(
         "training_annotations": [a.model_dump() for a in annotations_parsed],
         "engine": {
             "backend": "vertex_gemini",
-            "model": "gemini-3.1-pro-preview",
+            "model": "gemini-2.5-pro",
             "preset": "v25/valbot-r1-vip-v25",
         },
     }
@@ -1861,7 +1861,7 @@ def _build_meta_legacy(req: InitUploadRequest, analysis_id: str, ct: str, blob_n
         "resultado_exame": req.resultado_exame,
         "engine": {
             "backend": "vertex_gemini",
-            "model": "gemini-3.1-pro-preview",
+            "model": "gemini-2.5-pro",
             "preset": "v25/valbot-r1-vip-v25",
         },
     }
@@ -1902,7 +1902,7 @@ def _build_meta_batch(item: InitUploadItem, analysis_id: str, ct: str, blob_name
         "resultado_exame": item.resultado_exame,
         "engine": {
             "backend": "vertex_gemini",
-            "model": "gemini-3.1-pro-preview",
+            "model": "gemini-2.5-pro",
             "preset": "v25/valbot-r1-vip-v25",
         },
     }
@@ -3143,7 +3143,7 @@ def _render_laudo_pdf(out_dir: Path, result: dict, upload_meta: dict) -> None:
         "laudo_id": f"LAU-{result['video']['hash'][:8].upper()}",
         "rubrica": "1020_2025",
         "video_hash": result["video"]["hash"],
-        "modelo_versao": result.get("engine", {}).get("model", "gemini-3.1-pro-preview"),
+        "modelo_versao": result.get("engine", {}).get("model", "gemini-2.5-pro"),
         "duracao_seg": float(result.get("video", {}).get("duration_s") or 240.0),
         "limite_pontuacao": 10,
         "local": upload_meta.get("exame", {}).get("local", "—"),
