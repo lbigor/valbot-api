@@ -372,6 +372,170 @@ def _reprocessar_um_safe(exame: dict, *, apply: bool) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Função reutilizável (compartilhada pelo CLI e pelos endpoints HTTP)
+# ---------------------------------------------------------------------------
+
+
+def _resolver_concorrencia(concorrencia: int | None, n_candidatos: int) -> int:
+    """Resolve a concorrência efetiva do lote (igual ao CLI).
+
+    ``concorrencia`` (parâmetro explícito) sobrepõe o env
+    ``VALBOT_COMITE_CONCURRENCY`` (default 4 — conservador p/ não estourar a
+    quota do Vertex). Nunca abre mais threads que exames no lote, nunca < 1.
+    """
+    if concorrencia is not None:
+        c = max(1, int(concorrencia))
+    else:
+        c = max(1, int(os.environ.get("VALBOT_COMITE_CONCURRENCY", "4") or "4"))
+    return max(1, min(c, n_candidatos)) if n_candidatos else c
+
+
+def _selecionar_por_hashes(hashes: list[str]) -> list[dict]:
+    """Mesma projeção de ``_selecionar``, mas para uma lista explícita de hashes.
+
+    Usada pelo reprocessamento individual e pelo lote quando o caller passa os
+    hashes (ex.: o body ``{hashes:[...]}`` do endpoint). NÃO filtra por
+    ``divergente``/``comite_concluido`` — quem passou o hash quer reprocessar
+    aquele exame especificamente (o ``_reprocessar_um`` reconstrói os insumos do
+    que há persistido). Hash inexistente simplesmente não volta da view.
+    """
+    if not hashes:
+        return []
+    placeholders = ", ".join(["%s"] * len(hashes))
+    return db.fetch_all(
+        f"""
+        SELECT id::text AS id, hash, external_id, candidato_nome, categoria,
+               stage, divergente, comite_concluido,
+               resultado_oficial, resultado_calculado, aprovado, pontuacao_total
+          FROM v_exams_overview
+         WHERE hash IN ({placeholders})
+         ORDER BY created_at ASC
+        """,
+        tuple(hashes),
+    )
+
+
+def reprocessar_comite_lote(
+    hashes: list[str] | None = None,
+    *,
+    incluir_comite: bool = False,
+    reprocessar_todos: bool = False,
+    concorrencia: int | None = None,
+    limite: int = 200,
+    apply: bool = True,
+) -> dict:
+    """(Re)dispara o Comitê de IA para um LOTE de exames, em PARALELO.
+
+    Núcleo compartilhado pelo CLI (``main``) e pelos endpoints HTTP. Reusa
+    integralmente ``_reprocessar_um_safe`` (que NUNCA lança por exame), o mesmo
+    ``ThreadPoolExecutor`` e a mesma resolução de concorrência do CLI — só muda
+    a SELEÇÃO de candidatos e o retorno (dict estruturado em vez de prints).
+
+    Seleção de candidatos:
+      • ``hashes`` não-vazio  → reprocessa exatamente esses hashes
+        (via ``_selecionar_por_hashes``, sem filtro de divergência);
+      • ``hashes`` vazio/None → as divergências elegíveis derivadas da view
+        (``_selecionar`` com ``incluir_comite``/``reprocessar_todos``):
+        as travadas sem Comitê e, opcionalmente, as travadas em 'comite'.
+
+    Idempotência e thread-safety idênticas ao CLI (cada thread usa a sua própria
+    conexão autocommit em ``backend.core.db``; exames distintos são
+    independentes). ``apply=False`` faz dry-run (nada é gravado).
+
+    Retorna ``{total, ok, erro, pulados, deterministicos, concorrencia,
+    apply, resultados}`` — ``resultados`` é a lista de resumos por exame
+    (mesma estrutura devolvida por ``_reprocessar_um_safe``).
+    """
+    if not db.db_enabled():
+        return {
+            "total": 0,
+            "ok": 0,
+            "erro": 0,
+            "pulados": 0,
+            "deterministicos": 0,
+            "concorrencia": 0,
+            "apply": apply,
+            "db": "off",
+            "resultados": [],
+        }
+
+    if hashes:
+        candidatos = _selecionar_por_hashes([h for h in hashes if h])
+    else:
+        candidatos = _selecionar(limite, incluir_comite, reprocessar_todos)
+
+    total = len(candidatos)
+    if total == 0:
+        return {
+            "total": 0,
+            "ok": 0,
+            "erro": 0,
+            "pulados": 0,
+            "deterministicos": 0,
+            "concorrencia": 0,
+            "apply": apply,
+            "resultados": [],
+        }
+
+    concurrency = _resolver_concorrencia(concorrencia, total)
+
+    ok = 0
+    erro = 0
+    pulados = 0
+    determ = 0
+    resultados: list[dict] = []
+    lock = threading.Lock()
+
+    def _trabalho(exame: dict) -> dict:
+        nonlocal ok, erro, pulados, determ
+        r = _reprocessar_um_safe(exame, apply=apply)
+        with lock:
+            acao = r.get("acao")
+            if apply and acao == "REPROCESSADO":
+                ok += 1
+                if "deterministico" in (r.get("modo") or ""):
+                    determ += 1
+            elif acao == "ERRO":
+                erro += 1
+            elif acao not in ("REPROCESSADO", "DRY_RUN (nada gravado)"):
+                pulados += 1
+            resultados.append(r)
+        return r
+
+    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="comite-batch") as ex:
+        futures = [ex.submit(_trabalho, exame) for exame in candidatos]
+        for fut in futures:
+            # _trabalho/_reprocessar_um_safe nunca lançam; result() só sincroniza.
+            fut.result()
+
+    return {
+        "total": total,
+        "ok": ok,
+        "erro": erro,
+        "pulados": pulados,
+        "deterministicos": determ,
+        "concorrencia": concurrency,
+        "apply": apply,
+        "resultados": resultados,
+    }
+
+
+def reprocessar_comite_um(hash_: str, *, apply: bool = True) -> dict:
+    """(Re)dispara o Comitê para UM exame, por hash. Conveniência sobre
+    ``reprocessar_comite_lote`` — reusa toda a máquina (seleção via view,
+    captura de exceção, persistência) e devolve o resumo daquele exame.
+
+    Retorna ``{encontrado, resultado}`` — ``encontrado=False`` se o hash não
+    existe na view (``resultado=None``); senão o resumo de ``_reprocessar_um_safe``.
+    """
+    lote = reprocessar_comite_lote([hash_], apply=apply, concorrencia=1)
+    res = lote.get("resultados") or []
+    if not res:
+        return {"encontrado": False, "resultado": None, "db": lote.get("db")}
+    return {"encontrado": True, "resultado": res[0]}
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -444,6 +608,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    # Prévia da seleção (mantém o relatório do CLI). A EXECUÇÃO é delegada à
+    # função reutilizável `reprocessar_comite_lote` — mesma compartilhada pelos
+    # endpoints HTTP (mesmo ThreadPoolExecutor, mesma concorrência, mesma
+    # idempotência). Aqui o CLI só seleciona p/ imprimir a prévia e depois roda.
     candidatos = _selecionar(args.limite, args.incluir_comite, args.forcar_todos)
     modo = "APPLY" if args.apply else "DRY-RUN"
     print(
@@ -463,72 +631,50 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
-    # Concorrência: --concorrencia (CLI) sobrepõe VALBOT_COMITE_CONCURRENCY (env),
-    # default 4 (conservador p/ não estourar a quota do Vertex). Espelha o knob
-    # VALBOT_BATCH_CONCURRENCY do worker de análise.
-    if args.concorrencia is not None:
-        concurrency = max(1, args.concorrencia)
-    else:
-        concurrency = max(1, int(os.environ.get("VALBOT_COMITE_CONCURRENCY", "4") or "4"))
-    # Não adianta abrir mais threads que exames no lote.
-    concurrency = min(concurrency, len(candidatos))
+    total = len(candidatos)
+    concurrency = _resolver_concorrencia(args.concorrencia, total)
     print(
         f"[reprocessar_comite] EXECUÇÃO EM LOTE CONCORRENTE: "
-        f"{len(candidatos)} submetido(s), concorrência={concurrency} "
+        f"{total} submetido(s), concorrência={concurrency} "
         f"(VALBOT_COMITE_CONCURRENCY / --concorrencia).",
         flush=True,
     )
 
-    reprocessados = 0
-    determ = 0
-    erros = 0
-    pulados = 0
-    total = len(candidatos)
-    # Serializa apenas a impressão/contagem; o processamento (Vertex + writes) é
-    # paralelo. As escritas no banco são thread-safe por construção (conexão
-    # autocommit nova por chamada em backend.core.db) — ver _reprocessar_um_safe.
-    lock = threading.Lock()
-    contador = {"i": 0}
+    # Delega ao núcleo compartilhado (seleciona internamente os MESMOS candidatos
+    # via os mesmos filtros). NUNCA lança por exame.
+    lote = reprocessar_comite_lote(
+        None,
+        incluir_comite=args.incluir_comite,
+        reprocessar_todos=args.forcar_todos,
+        concorrencia=args.concorrencia,
+        limite=args.limite,
+        apply=args.apply,
+    )
 
-    def _trabalho(exame: dict) -> dict:
-        nonlocal reprocessados, determ, erros, pulados
-        r = _reprocessar_um_safe(exame, apply=args.apply)
-        with lock:
-            contador["i"] += 1
-            i = contador["i"]
-            acao = r.get("acao")
-            if args.apply and acao == "REPROCESSADO":
-                reprocessados += 1
-                if "deterministico" in (r.get("modo") or ""):
-                    determ += 1
-            elif acao == "ERRO":
-                erros += 1
-            elif acao not in ("REPROCESSADO", "DRY_RUN (nada gravado)"):
-                pulados += 1
-            exam_id = r.get("exam_id") or "????????"
-            linha = (
-                f"  [{i}/{total}] {acao} "
-                f"exam={str(exam_id)[:8]} stage={r.get('stage_antes')} "
-                f"div={r.get('tipo_divergencia')} infr={r.get('n_infracoes')}"
+    # Relatório por exame (mesmo formato anterior), a partir do retorno do lote.
+    for i, r in enumerate(lote.get("resultados", []), start=1):
+        acao = r.get("acao")
+        exam_id = r.get("exam_id") or "????????"
+        linha = (
+            f"  [{i}/{total}] {acao} "
+            f"exam={str(exam_id)[:8]} stage={r.get('stage_antes')} "
+            f"div={r.get('tipo_divergencia')} infr={r.get('n_infracoes')}"
+        )
+        if acao == "REPROCESSADO":
+            linha += (
+                f" modo={r.get('modo')} concl={r.get('conclusao_comite')} excl={r.get('exclusoes')}"
             )
-            if acao == "REPROCESSADO":
-                linha += (
-                    f" modo={r.get('modo')} concl={r.get('conclusao_comite')} "
-                    f"excl={r.get('exclusoes')}"
-                )
-            elif acao == "ERRO":
-                linha += f" ERRO: {r.get('erro')}"
-            print(linha, flush=True)
-            if args.verbose:
-                tag = "OK" if acao in ("REPROCESSADO", "DRY_RUN (nada gravado)") else acao
-                log.info("exam=%s %s", str(exam_id)[:12], tag)
-        return r
+        elif acao == "ERRO":
+            linha += f" ERRO: {r.get('erro')}"
+        print(linha, flush=True)
+        if args.verbose:
+            tag = "OK" if acao in ("REPROCESSADO", "DRY_RUN (nada gravado)") else acao
+            log.info("exam=%s %s", str(exam_id)[:12], tag)
 
-    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="comite-batch") as ex:
-        futures = [ex.submit(_trabalho, exame) for exame in candidatos]
-        for fut in futures:
-            # _trabalho/_reprocessar_um_safe nunca lançam; result() só sincroniza.
-            fut.result()
+    reprocessados = lote.get("ok", 0)
+    erros = lote.get("erro", 0)
+    pulados = lote.get("pulados", 0)
+    determ = lote.get("deterministicos", 0)
 
     print(
         f"[reprocessar_comite] LOTE: {total} submetido(s), "

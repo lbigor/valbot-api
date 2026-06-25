@@ -3210,6 +3210,96 @@ def enviar_laudos(_sess: dict = Depends(require_envio_laudos)):
     }
 
 
+class _ReprocessarComiteIn(BaseModel):
+    """Body (opcional) do reprocessamento do Comitê em lote.
+
+    - `hashes` vazio/ausente → todas as divergências elegíveis sem Comitê
+      (e, com `incluir_comite`, também as travadas em 'comite').
+    - `hashes` preenchido → reprocessa exatamente esses exames.
+    - `concorrencia` sobrepõe VALBOT_COMITE_CONCURRENCY (default 4).
+    """
+
+    hashes: list[str] = Field(
+        default_factory=list,
+        description="Hashes a reprocessar; vazio = todas as divergências elegíveis.",
+    )
+    incluir_comite: bool = Field(
+        default=False, description="Inclui as OS travadas em stage='comite' (gera novo laudo)."
+    )
+    reprocessar_todos: bool = Field(
+        default=False, description="Força TODOS os divergentes, mesmo os que já têm laudo."
+    )
+    concorrencia: int | None = Field(
+        default=None, description="Threads do lote; sobrepõe VALBOT_COMITE_CONCURRENCY."
+    )
+    limite: int = Field(default=200, description="Tamanho máximo do lote quando hashes vazio.")
+
+
+@app.post("/api/exams/{hash}/reprocessar-comite")
+def reprocessar_comite_individual(hash: str, _sess: dict = Depends(require_session)):
+    """(Re)dispara o Comitê de IA para UM exame (botão da OS/laudo).
+
+    Reusa a engine do CLI `tooling/reprocessar_comite.py` (mesma reconstrução de
+    insumos + persistência + reflexo na OS). NUNCA lança por exame: o resultado
+    vem no payload. Idempotente — reprocessar gera um novo laudo (append-only).
+
+    Retorna `{total, ok, erro, encontrado, resultado}`.
+    """
+    from tooling.reprocessar_comite import reprocessar_comite_um
+
+    r = reprocessar_comite_um(hash, apply=True)
+    if not r.get("encontrado"):
+        if r.get("db") == "off":
+            raise HTTPException(503, "banco indisponível — reprocessamento do Comitê desligado")
+        raise HTTPException(404, f"exame {hash} não encontrado na fila")
+    resultado = r.get("resultado") or {}
+    ok = 1 if resultado.get("acao") == "REPROCESSADO" else 0
+    erro = 1 if resultado.get("acao") == "ERRO" else 0
+    return {"total": 1, "ok": ok, "erro": erro, "encontrado": True, "resultado": resultado}
+
+
+@app.post("/api/exams/reprocessar-comite")
+def reprocessar_comite_lote_endpoint(
+    body: _ReprocessarComiteIn | None = None,
+    _sess: dict = Depends(require_session),
+):
+    """(Re)dispara o Comitê de IA em LOTE, em paralelo (botão da Fila).
+
+    - Body vazio → todas as divergências elegíveis sem Comitê (e, com
+      `incluir_comite`, as travadas em 'comite').
+    - Body `{hashes:[...]}` → reprocessa exatamente esses exames.
+
+    Reusa `reprocessar_comite_lote` do CLI (mesmo ThreadPoolExecutor, mesma
+    concorrência via VALBOT_COMITE_CONCURRENCY, idempotente, nunca lança por
+    exame). Retorna `{total, ok, erro, pulados, deterministicos, concorrencia}`.
+    """
+    from tooling.reprocessar_comite import reprocessar_comite_lote
+
+    b = body or _ReprocessarComiteIn()
+    res = reprocessar_comite_lote(
+        b.hashes or None,
+        incluir_comite=b.incluir_comite,
+        reprocessar_todos=b.reprocessar_todos,
+        concorrencia=b.concorrencia,
+        limite=b.limite,
+        apply=True,
+    )
+    if res.get("db") == "off":
+        raise HTTPException(503, "banco indisponível — reprocessamento do Comitê desligado")
+    # Não devolve a lista completa de resultados no lote (pode ser grande) — só os
+    # contadores + uma amostra dos erros para diagnóstico no front.
+    erros = [r for r in res.get("resultados", []) if r.get("acao") == "ERRO"]
+    return {
+        "total": res.get("total", 0),
+        "ok": res.get("ok", 0),
+        "erro": res.get("erro", 0),
+        "pulados": res.get("pulados", 0),
+        "deterministicos": res.get("deterministicos", 0),
+        "concorrencia": res.get("concorrencia", 0),
+        "detalhe_erros": [{"hash": e.get("hash"), "erro": e.get("erro")} for e in erros[:10]],
+    }
+
+
 # ============================================================================
 # Pipeline: status + background task de análise
 # ============================================================================
