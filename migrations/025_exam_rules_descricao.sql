@@ -1,0 +1,21 @@
+-- =============================================================================
+-- 025 — exam_rules.descricao: a "Descrição" oficial da ficha MBEDV.
+--
+-- A ficha de procedimento do MBEDV tem uma seção "Descrição" (o que caracteriza
+-- a falta) que NÃO estava sendo persistida na matriz — só `conduta_observavel`
+-- (o título do artigo) e as condutas que pontuam/não pontuam. Sem a Descrição e
+-- as "Definições e procedimentos" (já gravadas em `comentario_juridico`), o
+-- prompt da IA não recebia o CRITÉRIO de avaliação (ex.: parada obrigatória =
+-- "veículo totalmente imóvel, parada antes da faixa de retenção"), gerando falso
+-- positivo de "parada rolante".
+--
+-- Esta coluna passa a guardar a Descrição oficial (campo `descricao` do
+-- `configs/references/mbedv_fichas.json`). O `prompt_builder.construir_bloco`
+-- passa a renderizá-la, junto com `comentario_juridico`, no bloco da Matriz —
+-- alimentando a 1ª passada (Motor de Detecção) e o Comitê.
+--
+-- Idempotente: ADD COLUMN IF NOT EXISTS. Após aplicar, rodar o seed
+-- (backend.matriz.seed_mbedv) para popular as 84 fichas.
+-- =============================================================================
+
+ALTER TABLE exam_rules ADD COLUMN IF NOT EXISTS descricao TEXT;

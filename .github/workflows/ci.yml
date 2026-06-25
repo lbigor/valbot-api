@@ -45,11 +45,31 @@ jobs:
           fail_ci_if_error: false
 
   # ---------------------------------------------------------------------------
-  # 2. Build + scan + push pra Artifact Registry (apenas em main)
+  # 1b. Preflight — só ativa o deploy quando os secrets de WIF existem. Sem eles
+  # o build-push é PULADO (não falha) — assim a main não fica vermelha antes do
+  # IAM estar pronto. (Secrets não podem ir direto no `if:` de um job, então este
+  # job os projeta para um output booleano.)
+  # ---------------------------------------------------------------------------
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.check.outputs.deploy }}
+    steps:
+      - id: check
+        run: |
+          if [ -n "${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}" ] && [ -n "${{ secrets.GCP_CI_SA }}" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::secrets WIF ausentes — build-push pulado até o IAM ser configurado"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. Build + scan + push pra Artifact Registry (só em main, só com WIF pronto)
   # ---------------------------------------------------------------------------
   build-push:
-    needs: lint-test
-    if: github.ref == 'refs/heads/main'
+    needs: [lint-test, preflight]
+    if: github.ref == 'refs/heads/main' && needs.preflight.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -66,9 +86,9 @@ jobs:
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          # Configurar antes em GCP IAM:
+          # Configurar antes em GCP IAM (projeto valbot-497920):
           #   workload_identity_provider = projects/<NUM>/locations/global/workloadIdentityPools/github/providers/<repo>
-          #   service_account = ci-deploy@project-308f1fa8-a301-49e6-a69.iam.gserviceaccount.com
+          #   service_account = ci-deploy@valbot-497920.iam.gserviceaccount.com
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_CI_SA }}
 

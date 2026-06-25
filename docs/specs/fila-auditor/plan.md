@@ -9,7 +9,7 @@
 - **Rota**: `src/App.tsx` → `<Route path="/fila-auditor" component={FilaAuditor} />` (full-screen, fora do AppLayout).
 
 ## Dados
-- **v1 (atual)**: mock em `painel.ts` (5 exames). 
+- **v1 (atual)**: mock em `painel.ts` (5 exames).
 - **Contrato-alvo (v2)**: `GET /api/os` (fila), `GET /api/os/{id}` (comparação + laudo do Comitê + infrações oficiais×calculadas), `GET /api/exams/{id}/video` (Range), `GET /api/matriz`, `POST /api/os/{id}/parecer-auditor`. Endpoints já existem no `api_stub` (frente api-os, mock quando `VALBOT_DB_DISABLED=1`).
 
 ## Decisões

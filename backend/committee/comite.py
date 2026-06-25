@@ -24,6 +24,7 @@ import time
 from backend.core.config import settings
 from backend.matriz import prompt_builder
 from backend.models import (
+    LIMITE_APROVACAO,
     CausaIdentificada,
     ComentarioExaminador,
     Comparacao,
@@ -170,6 +171,109 @@ def _laudo_deterministico(
     )
 
 
+def _build_prompt_justificativa(infracoes: list[dict], rubrica: str, bloco_mbedv: str) -> str:
+    """Prompt do Comitê: AMPARA a decisão do auditor explicando, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — sem reanalisar o vídeo (raciocina
+    sobre a evidência já capturada pela 1ª análise + a Matriz)."""
+    linhas = []
+    for it in infracoes:
+        rid = it.get("id") or it.get("codigo") or "?"
+        ts = it.get("timestamp_s") or it.get("ts_seconds")
+        ts_fmt = (
+            f"{int(ts) // 60:02d}:{int(ts) % 60:02d}" if isinstance(ts, (int, float)) else "??:??"
+        )
+        ev = it.get("evidence") or it.get("descricao") or ""
+        linhas.append(f'  • {rid} @ {ts_fmt} — "{ev}"')
+    lista = "\n".join(linhas) if linhas else "  (nenhuma infração apontada)"
+
+    return f"""Você é o COMITÊ DE IA do Val Auditor (rubrica {rubrica}) — a SEGUNDA \
+ANÁLISE. Sua função NÃO é repetir a 1ª análise nem só justificá-la: é VALIDAR, \
+infração por infração, se o ATO realmente ocorreu, à luz da evidência registrada \
+e da Matriz MBEDV. Você ampara a decisão do auditor.
+
+REGRA DURA: se você NÃO conseguir confirmar, pela evidência, que o ato de fato \
+aconteceu, a infração NÃO se sustenta e será EXCLUÍDA do exame (o veredicto é \
+recalculado sem ela). Não confirme uma falta "no benefício da dúvida" — confirme \
+APENAS o que a evidência sustenta. Sem prova do ato, "nao_sustenta".
+
+INFRAÇÕES DETECTADAS (id @ timestamp — evidência):
+{lista}
+
+Para CADA infração, à luz da Matriz MBEDV abaixo:
+  - motivo: COMO você validou se o ato ocorreu — cite a evidência CONCRETA (o quê,
+    quando, em qual câmera/áudio) que CONFIRMA o ato, OU explique por que a
+    evidência NÃO comprova que aconteceu. Seja específico, não genérico.
+  - conduta_observavel: o que o candidato fez (ou deixou de fazer) que configura a falta.
+  - base_legal: o artigo CTB + a ficha MBEDV + gravidade/peso.
+  - excecao_aplicavel: se alguma condição de "NÃO pontua" da ficha se aplica — qual, ou "nenhuma".
+  - veredicto: "sustenta" (a evidência CONFIRMA que o ato ocorreu) | "nao_sustenta"
+    (a evidência NÃO comprova o ato → será EXCLUÍDA) | "revisar" (só o vídeo/humano decide).
+  - confianca: 0.0 a 1.0.
+
+{bloco_mbedv}
+
+DEVOLVA SOMENTE JSON:
+{{
+  "infracoes": [
+    {{"id": "...", "motivo": "...", "conduta_observavel": "...", "base_legal": "...",
+      "excecao_aplicavel": "...", "veredicto": "sustenta|nao_sustenta|revisar", "confianca": 0.0}}
+  ],
+  "recomendacao_para_auditor": "síntese objetiva: o que se SUSTENTA, o que foi EXCLUÍDO e por quê, e a recomendação ao auditor (confirmar / reformular / aprovar)"
+}}
+"""
+
+
+def aplicar_exclusoes(exame_id: str, infracoes_entrada: list[dict], laudo: LaudoComite) -> dict:
+    """Aplica os veredictos do Comitê: infrações 'nao_sustenta' são EXCLUÍDAS
+    (status='excluida_comite') e o veredicto do exame é RECALCULADO sem elas.
+
+    Casa por POSIÇÃO (verificacoes na mesma ordem das infrações de entrada);
+    só age se a contagem bater (senão não arrisca exclusão errada). Devolve o
+    resumo {excluidas, pontuacao_total, aprovado}. Nunca levanta.
+    """
+    from backend.core import db
+
+    verifs = laudo.verificacoes_executadas
+    if not verifs or len(verifs) != len(infracoes_entrada):
+        return {"excluidas": 0, "skip": "contagem_divergente"}
+    excl = 0
+    try:
+        for ent, v in zip(infracoes_entrada, verifs, strict=False):
+            if v.resultado != "nao_sustenta":
+                continue
+            db.execute(
+                "UPDATE exam_infractions SET status='excluida_comite' "
+                "WHERE exam_id=%s AND regra_id=%s AND timestamp_s=%s "
+                "AND status IS DISTINCT FROM 'excluida_comite'",
+                (exame_id, str(ent.get("id") or ent.get("codigo") or ""), ent.get("timestamp_s")),
+            )
+            excl += 1
+        if not excl:
+            return {"excluidas": 0}
+        row = db.fetch_one(
+            "SELECT COALESCE(SUM(pontos),0) AS pts FROM exam_infractions "
+            "WHERE exam_id=%s AND (status IS NULL OR status <> 'excluida_comite')",
+            (exame_id,),
+        )
+        pts = int(row["pts"]) if row else 0
+        aprovado = pts <= LIMITE_APROVACAO
+        db.execute(
+            "UPDATE exams SET pontuacao_total=%s, aprovado=%s WHERE id=%s",
+            (pts, aprovado, exame_id),
+        )
+        log.info(
+            "comite exclusoes exame=%s excluidas=%d pts=%d aprovado=%s",
+            exame_id,
+            excl,
+            pts,
+            aprovado,
+        )
+        return {"excluidas": excl, "pontuacao_total": pts, "aprovado": aprovado}
+    except Exception as e:  # pragma: no cover — resiliente
+        log.warning("comite aplicar_exclusoes falhou exame=%s: %s", exame_id, e)
+        return {"excluidas": 0, "erro": str(e)[:120]}
+
+
 def revisar(
     video: str | None,
     *,
@@ -179,30 +283,43 @@ def revisar(
     deteccao: SaidaDeteccao,
     rubrica: str = "1020/2025",
 ) -> LaudoComite:
-    """Executa o Comitê. Tenta a 2ª chamada Gemini focada; em falha, cai no
-    laudo determinístico. Sempre devolve um laudo (nunca levanta)."""
+    """Executa o Comitê como MOTOR DE JUSTIFICATIVA: explica, com fundamentação
+    MBEDV, o MOTIVO de cada infração detectada — para amparar a decisão do auditor.
+
+    NÃO reanalisa o vídeo (1 chamada de TEXTO, barata; a evidência da 1ª análise é
+    o insumo). Em falha, cai no laudo determinístico. Nunca levanta. `video` é
+    mantido por compatibilidade de assinatura (não usado)."""
     started = time.monotonic()
 
-    if not settings.comite_habilitado or not video or not infracoes_detectadas:
+    if not settings.comite_habilitado or not infracoes_detectadas:
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+
+    # Matriz RESTRITA às fichas dos artigos detectados — o Comitê só julga essas;
+    # encolhe o prompt e evita estourar o tamanho do pedido em exames com muitas
+    # infrações (que antes caíam no laudo determinístico).
+    artigos = {str(it.get("id") or it.get("codigo") or "") for it in infracoes_detectadas}
+    artigos = {a for a in artigos if a}
+    try:
+        bloco_mbedv, _versao = prompt_builder.construir_bloco(None, artigos=artigos)
+    except Exception:  # pragma: no cover — sem banco/seed
+        bloco_mbedv = ""
 
     try:
         import vertexai
-        from vertexai.generative_models import GenerationConfig, GenerativeModel, Part
+        from vertexai.generative_models import GenerationConfig, GenerativeModel
 
-        prompt = _build_prompt_comite(infracoes_detectadas, rubrica)
         vertexai.init(project=settings.vertex_project, location=settings.vertex_location)
         model = GenerativeModel(
             settings.vertex_model,
             system_instruction=(
-                "Você é o Comitê de IA do Val Auditor: aprofunda divergências com "
-                "rigor, jamais decide pelo humano, jamais reverte a divergência. "
-                "Foca apenas nas infrações recebidas."
+                "Você é o Comitê de IA do Val Auditor: AMPARA a decisão do auditor "
+                "humano explicando, com fundamentação MBEDV, o motivo de cada infração "
+                "detectada. Rigor e clareza; jamais decide pelo humano."
             ),
         )
-        part = Part.from_uri(str(video), mime_type="video/mp4")
+        prompt = _build_prompt_justificativa(infracoes_detectadas, rubrica, bloco_mbedv)
         resp = model.generate_content(
-            [part, prompt],
+            [prompt],
             generation_config=GenerationConfig(
                 response_mime_type="application/json",
                 temperature=0.1,
@@ -210,12 +327,64 @@ def revisar(
             ),
         )
         raw = _parse_json(resp.text)
-        laudo = _laudo_de_raw(exame_id, comparacao, raw, time.monotonic() - started)
-        log.info("comite exame=%s causas=%d", exame_id, len(laudo.causas_identificadas))
+        laudo = _laudo_de_justificativa(exame_id, comparacao, raw, time.monotonic() - started)
+        log.info("comite exame=%s justificativas=%d", exame_id, len(laudo.causas_identificadas))
         return laudo
     except Exception as e:  # pragma: no cover — fallback resiliente
-        log.warning("comite Gemini falhou exame=%s (%s) — laudo determinístico", exame_id, e)
+        log.warning("comite Gemini falhou exame=%s (%s) — determinístico", exame_id, e)
         return _laudo_deterministico(exame_id, comparacao, deteccao, time.monotonic() - started)
+
+
+def _laudo_de_justificativa(
+    exame_id: str, comparacao: Comparacao, raw: dict, tempo: float
+) -> LaudoComite:
+    """Mapeia o JSON de justificativas → LaudoComite. Cada infração vira uma
+    CausaIdentificada (conduta + MOTIVO + base legal) e uma VerificacaoComite
+    (veredicto sustenta/nao_sustenta/revisar)."""
+    infs = [i for i in (raw.get("infracoes") or []) if isinstance(i, dict)]
+    causas = [
+        CausaIdentificada(
+            causa=str(i.get("conduta_observavel") or i.get("id") or ""),
+            evidencia=str(i.get("motivo") or ""),
+            interpretacao_normativa=(
+                str(i.get("base_legal") or "")
+                + (
+                    f" · Exceção: {i.get('excecao_aplicavel')}"
+                    if i.get("excecao_aplicavel")
+                    and str(i.get("excecao_aplicavel")).strip().lower() not in ("nenhuma", "")
+                    else ""
+                )
+            ),
+            confianca_causa=float(i.get("confianca") or 0.0),
+        )
+        for i in infs
+    ]
+    verifs = [
+        VerificacaoComite(
+            regra=str(i.get("id") or ""),
+            segmento=str(i.get("base_legal") or ""),
+            resultado=str(i.get("veredicto") or "revisar"),
+        )
+        for i in infs
+    ]
+    sustenta = sum(1 for i in infs if str(i.get("veredicto")) == "sustenta")
+    conclusao = (
+        "concorda_com_examinador"
+        if infs and sustenta == len(infs)
+        else "manter_divergencia_com_fundamentacao"
+    )
+    return LaudoComite(
+        exame_id=exame_id,
+        comite_versao=settings.comite_versao + "+justificativa",
+        tempo_processamento_seg=round(tempo, 2),
+        tipo_divergencia_analisada=comparacao.tipo_divergencia,
+        tipo_divergencia_pos_comite=comparacao.tipo_divergencia,
+        causas_identificadas=causas,
+        verificacoes_executadas=verifs,
+        comentarios_examinador_detectados=[],
+        recomendacao_para_auditor=str(raw.get("recomendacao_para_auditor") or ""),
+        conclusao_comite=conclusao,
+    )
 
 
 def _laudo_de_raw(exame_id: str, comparacao: Comparacao, raw: dict, tempo: float) -> LaudoComite:

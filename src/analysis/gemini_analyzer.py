@@ -192,6 +192,26 @@ RESPONSE_SCHEMA_V26 = {
                 "required": ["tipo", "ts_seconds", "evidencia"],
             },
         },
+        # Checklist técnico Anexo K (Res. CONTRAN 1.020/2025) — 12 itens FIXOS.
+        # INFORMATIVO: não pontua, não entra em infrações, não altera aprovado
+        # (constituição §V). O modelo devolve o veredito observado por item.
+        "checklist_anexo_k": {
+            "type": "array",
+            "minItems": 12,
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "veredito": {
+                        "type": "string",
+                        "enum": ["SIM", "NAO", "ATENCAO", "NAO_AVALIAVEL"],
+                    },
+                    "evidencia": {"type": "string"},
+                },
+                "required": ["id", "veredito", "evidencia"],
+            },
+        },
         "escopo_avaliado": {"type": "array", "items": {"type": "string"}},
         "catalog_version": {"type": "string", "enum": ["v26"]},
         "rejected": {"type": "boolean"},
@@ -203,6 +223,7 @@ RESPONSE_SCHEMA_V26 = {
         "aprovado",
         "pontuacao_total",
         "infracoes_detectadas",
+        "checklist_anexo_k",
         "catalog_version",
         "rejected",
     ],
@@ -667,6 +688,11 @@ FORMATO DE SAÍDA — JSON ESTRITO
     }},
     "comentario": "Vídeo analisado integralmente: examinador autorizou o início aos 00:12 com o veículo parado e o teste foi encerrado aos 04:58 com o veículo novamente parado."
   }},
+  "checklist_anexo_k": [
+    {{"id": 1, "veredito": "NAO_AVALIAVEL", "evidencia": "Conferência biométrica do candidato não é verificável pela análise de vídeo."}},
+    {{"id": 2, "veredito": "SIM", "evidencia": "Gravação cobre do comando inicial (00:12) ao encerramento (04:58)."}},
+    {{"id": 7, "veredito": "ATENCAO", "evidencia": "Tom ríspido do examinador aos 02:14 ('presta atenção, isso é o básico')."}}
+  ],
   "infracoes_avaliadas": [
     {{
       "id": "R1020-G-a",
@@ -700,6 +726,27 @@ REGRAS DURAS:
     e o `comentario` explica que a captura parece incompleta/cortada.
   • cobertura_integral NÃO pontua, NÃO entra em infracoes_* e NÃO altera
     pontuacao_total nem aprovado — é só sinal de integralidade da captura.
+  • checklist_anexo_k é OBRIGATÓRIO e tem EXATAMENTE os 12 itens fixos abaixo,
+    um objeto por `id` (1 a 12), na ordem. É INFORMATIVO: NÃO pontua, NÃO entra
+    em infracoes_* e NÃO altera pontuacao_total nem aprovado.
+    Veredito por item: "SIM" (conforme/observado), "NAO" (não conforme/ausente),
+    "ATENCAO" (parcial/dúvida observável) ou "NAO_AVALIAVEL" (fora do alcance da
+    análise de vídeo/áudio). `evidencia` = frase factual curta (cite ts/câmera/
+    áudio); vazia só quando NAO_AVALIAVEL. NA DÚVIDA entre SIM e NAO → "ATENCAO".
+    Os 12 itens (id → item):
+      1  Biometria do candidato confere        → SEMPRE "NAO_AVALIAVEL"
+         (identidade biométrica não é verificável por vídeo).
+      2  Gravação completa do início ao fim    (use o mesmo sinal de cobertura_integral)
+      3  Examinadora finalizou após candidata sair
+      4  Examinadora uniformizada/identificada
+      5  Informou faltas durante a gravação    (áudio do examinador)
+      6  Informou resultado INAPTO na gravação (áudio do examinador)
+      7  Tratamento respeitoso
+      8  Câmeras reguladas e funcionando
+      9  Câmeras nítidas e sincronizadas
+      10 Áudio sem interrupções/delay
+      11 Sem queixa de problema mecânico
+      12 Comportamento adequado dos envolvidos
 
 ═══════════════════════════════════════════════════════════════
 PRINCÍPIO SUPREMO E INVIOLÁVEL — IN DUBIO, NÃO APONTAR
@@ -1315,6 +1362,8 @@ def _normalize_v26(
         # Sinal de integralidade da captura (marcos início/fim com carro parado).
         # Informativo — não pontua, não altera aprovado (constituição §V).
         "cobertura_integral": _normalize_cobertura(raw),
+        # Checklist técnico Anexo K (12 itens fixos) — informativo, não pontua.
+        "checklist_anexo_k": _normalize_checklist_anexo_k(raw),
         "escopo_avaliado": escopo,
         "escopo_pendente_infraestrutura": [],
         "infracoes_avaliadas": detectadas,
@@ -1403,6 +1452,84 @@ def _normalize_cobertura(raw: dict) -> dict:
         "marco_fim": fim,
         "comentario": comentario,
     }
+
+
+# Os 12 itens FIXOS do checklist técnico Anexo K (Res. CONTRAN 1.020/2025).
+# Ordem e textos são normativos — o modelo só preenche o veredito por `id`.
+_ANEXO_K_ITENS: tuple[tuple[int, str], ...] = (
+    (1, "Biometria do candidato confere"),
+    (2, "Gravação completa do início ao fim"),
+    (3, "Examinadora finalizou após candidata sair"),
+    (4, "Examinadora uniformizada/identificada"),
+    (5, "Informou faltas durante a gravação"),
+    (6, "Informou resultado INAPTO na gravação"),
+    (7, "Tratamento respeitoso"),
+    (8, "Câmeras reguladas e funcionando"),
+    (9, "Câmeras nítidas e sincronizadas"),
+    (10, "Áudio sem interrupções/delay"),
+    (11, "Sem queixa de problema mecânico"),
+    (12, "Comportamento adequado dos envolvidos"),
+)
+
+
+def _normalize_veredito_anexo_k(v: object) -> str | None:
+    """Coage o veredito de um item pro vocabulário fechado
+    {SIM, NAO, ATENCAO, NAO_AVALIAVEL}. Desconhecido/ausente → None (o
+    consumidor mostra '—'). Tolera acento/caixa sem depender de unicodedata."""
+    if v is None:
+        return None
+    s = str(v).strip().upper()
+    for a, b in (("Ã", "A"), ("Ç", "C"), ("Á", "A"), ("À", "A"), ("Â", "A")):
+        s = s.replace(a, b)
+    s = s.replace(" ", "_").replace("/", "_")
+    if s in {"SIM", "S", "TRUE", "CONFORME"}:
+        return "SIM"
+    if s in {"NAO", "N", "FALSE", "NAO_CONFORME"}:
+        return "NAO"
+    if s in {"ATENCAO", "ALERTA", "WARN", "PARCIAL"}:
+        return "ATENCAO"
+    if s in {"NAO_AVALIAVEL", "NA", "N_A", "FORA_DE_ESCOPO"}:
+        return "NAO_AVALIAVEL"
+    return None
+
+
+def _normalize_checklist_anexo_k(raw: dict) -> list[dict]:
+    """Normaliza o bloco `checklist_anexo_k` pros 12 itens FIXOS do Anexo K.
+
+    INFORMATIVO — não pontua, não entra em infrações, não altera `aprovado`
+    (constituição §V). Sempre devolve os 12 itens na ordem normativa, casando o
+    veredito do modelo por `id`. Item 1 (biometria) é SEMPRE NAO_AVALIAVEL —
+    identidade biométrica não é verificável por vídeo. Item ausente/ilegível →
+    veredito null (o consumidor mostra '—'); nunca inventa.
+    """
+    bruto = raw.get("checklist_anexo_k")
+    por_id: dict[int, dict] = {}
+    if isinstance(bruto, list):
+        for it in bruto:
+            if not isinstance(it, dict):
+                continue
+            raw_id = it.get("id")
+            if raw_id is None:
+                continue
+            try:
+                iid = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            por_id[iid] = it
+    out: list[dict] = []
+    for iid, label in _ANEXO_K_ITENS:
+        src = por_id.get(iid) or {}
+        veredito: str | None
+        if iid == 1:
+            veredito = "NAO_AVALIAVEL"
+            evidencia = (
+                "Conferência biométrica do candidato não é verificável pela análise de vídeo."
+            )
+        else:
+            veredito = _normalize_veredito_anexo_k(src.get("veredito"))
+            evidencia = (str(src.get("evidencia") or "")).strip()
+        out.append({"id": iid, "item": label, "veredito": veredito, "evidencia": evidencia})
+    return out
 
 
 def _normalize(
@@ -1504,6 +1631,8 @@ def _normalize(
         # Sinal de integralidade da captura (marcos início/fim com carro parado).
         # Informativo — não pontua, não altera aprovado (constituição §V).
         "cobertura_integral": _normalize_cobertura(raw),
+        # Checklist técnico Anexo K (12 itens fixos) — informativo, não pontua.
+        "checklist_anexo_k": _normalize_checklist_anexo_k(raw),
         "escopo_avaliado": [i["id"] for i in infracoes_avaliadas],
         "escopo_pendente_infraestrutura": [
             mid
