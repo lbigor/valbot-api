@@ -1195,6 +1195,18 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     # em status='uploading' (o caminho gs_video está gravado, mas o objeto não
     # existe no GCS — download nunca concluiu). Esses não têm o que auditar.
     rows = [r for r in rows if (r.get("status") or "").strip().lower() != "uploading"]
+    # Materializa (idempotente, 1 ida ao banco) a OS dos exames já em 'auditoria'
+    # (divergência pós-comitê) que ainda não tinham ordens_servico — cobre o legado
+    # dos exames presos sem OS, e garante que o supervisor tenha uma OS real pra
+    # encerrar. Best-effort: jamais derruba a listagem.
+    try:
+        _aud_hashes = [
+            r.get("hash") for r in rows if r.get("stage") == "auditoria" and r.get("hash")
+        ]
+        if _aud_hashes:
+            db.ensure_os_em_auditoria(_aud_hashes)
+    except Exception as _e:  # pragma: no cover - resiliência dura
+        log.warning("list_os_v2 ensure_os_em_auditoria falhou: %s", _e)
     # Sinais de ETAPA da cadeia humana (auditor/supervisor) por hash do exame.
     # Lidos das tabelas reais da OS (ordens_servico/supervisor_decisoes) — read-only
     # e derivado, sem tocar no pipeline. Batelada única; vazio/None se DB off ou
@@ -8980,8 +8992,14 @@ def post_decisao_supervisor(
         raise HTTPException(422, "decisao deve ser 'homologar' ou 'reformar'")
     user = _current_user(valbot_session)
     supervisor = (user or {}).get("email")
+    # O frontend manda ora o HASH do exame (os_id sintético da fila /api/os),
+    # ora o UUID real da OS. Resolve para o id REAL via GET-OR-CREATE — materializa
+    # a OS se ainda não existir (cobre os exames em 'auditoria' sem ordens_servico).
+    # Sem isso o hash de 64 chars era comparado contra a PK UUID → nunca casava e
+    # a decisão caía no eco-mock (nada persistido). Fallback: o próprio identificador.
+    os_real_id = db.resolver_os_id(os_id) or os_id
     saved = db.save_supervisor_decisao(
-        os_id,
+        os_real_id,
         supervisor=supervisor,
         decisao=data.decisao,
         resultado_final=data.resultado_final,
@@ -8990,15 +9008,21 @@ def post_decisao_supervisor(
     )
     if saved is None:
         return {
-            "os_id": os_id,
+            "ok": False,
+            "os_id": os_real_id,
             "supervisor": supervisor,
             "decisao": data.decisao,
             "resultado_final": data.resultado_final,
             "justificativa": data.justificativa,
             "homologar_conduta": data.homologar_conduta,
             "status_os": "decisao_final",
+            "stage": "concluido",
             "source": "mock",
         }
+    # OS encerrada (encerrada_em setado) ⇒ v_exams_overview rende stage='concluido'
+    # (o exame sai da fila de auditoria). Contrato com o frontend: {ok, stage}.
+    saved["ok"] = True
+    saved["stage"] = "concluido"
     saved["source"] = "db"
     return saved
 

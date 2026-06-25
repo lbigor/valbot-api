@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import contextmanager
 from datetime import UTC
 from typing import Any
@@ -103,6 +104,11 @@ SELECT
     WHEN base.oficial_pendente                                               THEN 'aguardando'
     WHEN lower(coalesce(base.status, '')) IN ('queued','pending','novo','uploaded','recebido') THEN 'aguardando'
     WHEN lower(coalesce(base.status, '')) IN ('running','processing','analisando')             THEN 'processando'
+    -- ── Desfecho do Supervisor: OS encerrada (decisão final) ⇒ CONCLUÍDO ──────
+    -- A decisão do supervisor (save_supervisor_decisao) seta ordens_servico
+    -- .encerrada_em; o exame sai da auditoria e vira 'concluido', INDEPENDENTE da
+    -- divergência. Tem precedência sobre comitê/auditoria (a cadeia já terminou).
+    WHEN base.os_encerrada_em IS NOT NULL                                     THEN 'concluido'
     WHEN base.divergente AND NOT base.comite_concluido                       THEN 'comite'
     WHEN base.divergente AND base.comite_concluido                           THEN 'auditoria'
     ELSE 'concluido'
@@ -184,9 +190,16 @@ FROM (
            THEN (coalesce(e.layout_confianca, cv.confianca) >= 0.7)
       ELSE NULL
     END                                                        AS video_ok,
-    (jsonb_array_length(coalesce(e.training_annotations, '[]'::jsonb)) > 0) AS tem_anotacoes
+    (jsonb_array_length(coalesce(e.training_annotations, '[]'::jsonb)) > 0) AS tem_anotacoes,
+
+    -- ── Desfecho da OS (decisão do supervisor) — fonte do stage 'concluido' ────
+    -- 1 OS por exame (UNIQUE exam_id), então o LEFT JOIN é 1:1. encerrada_em é
+    -- setado por save_supervisor_decisao ao homologar/reformar a decisão final.
+    os_ord.status        AS os_status,
+    os_ord.encerrada_em  AS os_encerrada_em
   FROM exams e
   LEFT JOIN exam_camera_validations cv ON cv.exam_id = e.id
+  LEFT JOIN ordens_servico os_ord ON os_ord.exam_id = e.id
 ) base;
 """
 
@@ -1115,6 +1128,70 @@ def os_id_por_hash(exam_hash: str, tipo_divergencia: str = "resultado") -> str |
         return None
 
 
+# Hash sha256 de exame = 64 hex. O frontend manda ora o id REAL da OS (UUID),
+# ora este hash (os_id sintético da fila /api/os). Usado por resolver_os_id.
+_HEX64_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def resolver_os_id(identificador: str | None, tipo_divergencia: str = "resultado") -> str | None:
+    """Resolve um identificador vindo do frontend → id REAL da OS (UUID).
+
+    TOLERANTE (o frontend manda os dois formatos, ver SupervisorWorkspace):
+      • 64 hex  → é o HASH do exame → os_id_por_hash (GET-OR-CREATE; materializa a
+        OS se ainda não existir — resolve de quebra o legado de exames em
+        'auditoria' sem ordens_servico).
+      • caso contrário → assume ser o UUID de uma OS já existente; devolve como veio
+        (a validação real acontece em save_supervisor_decisao, que faz o SELECT por PK).
+    None se DB off, hash sem exame, ou identificador vazio.
+    """
+    if _disabled() or not identificador:
+        return None
+    s = str(identificador).strip()
+    if not s:
+        return None
+    if _HEX64_RE.match(s):
+        return os_id_por_hash(s, tipo_divergencia)
+    return s
+
+
+def ensure_os_em_auditoria(hashes: list[str]) -> int:
+    """Materializa (idempotente) uma OS para cada exam_hash dado que ainda não a
+    tenha. UM único INSERT...SELECT ... ON CONFLICT(exam_id) DO NOTHING — barato
+    mesmo com centenas de hashes (uma ida ao banco). Cobre os exames que entraram
+    em 'auditoria' (divergência pós-comitê) ANTES de existir camada de
+    materialização. Espelha exatamente o shape de os_id_por_hash
+    (tipo_divergencia='resultado', status='aguardando_supervisor', numero_os).
+    Retorna o nº de OS criadas (0 se DB off / nada a criar). Nunca lança.
+    """
+    if _disabled():
+        return 0
+    hs = [h for h in (hashes or []) if h]
+    if not hs:
+        return 0
+    try:
+        with _conn() as c:
+            if c is None:
+                return 0
+            cur = c.execute(
+                """
+                INSERT INTO ordens_servico (exam_id, tipo_divergencia, status, numero_os)
+                SELECT e.id, 'resultado', 'aguardando_supervisor',
+                       'OS-' || upper(substr(e.hash, 1, 8))
+                FROM exams e
+                WHERE e.hash = ANY(%s)
+                ON CONFLICT (exam_id) DO NOTHING
+                """,
+                (hs,),
+            )
+            n = cur.rowcount or 0
+            if n:
+                log.info("db.ensure_os_em_auditoria: %d OS materializadas", n)
+            return n
+    except Exception as e:
+        log.warning("db.ensure_os_em_auditoria falhou: %s", e)
+        return 0
+
+
 def save_parecer_auditor(
     os_id: str,
     *,
@@ -1778,6 +1855,26 @@ def laudo_dossie(exam_hash: str) -> dict | None:
                 return None
             cols = [d.name for d in cur.description]
             out: dict = {"exam": dict(zip(cols, row))}
+
+            # Materializa a OS (idempotente) quando o exame está em 'auditoria'
+            # (divergência pós-comitê) e ainda não tem ordens_servico — cobre o
+            # legado sem materialização, garantindo que o dossiê e a decisão do
+            # supervisor tenham uma OS REAL. Mesma conexão (barato). Best-effort:
+            # falha aqui jamais derruba o dossiê.
+            try:
+                if (out["exam"].get("stage") == "auditoria") and out["exam"].get("id"):
+                    c.execute(
+                        """
+                        INSERT INTO ordens_servico
+                            (exam_id, tipo_divergencia, status, numero_os)
+                        VALUES (%s, 'resultado', 'aguardando_supervisor',
+                                'OS-' || upper(substr(%s, 1, 8)))
+                        ON CONFLICT (exam_id) DO NOTHING
+                        """,
+                        (out["exam"]["id"], exam_hash),
+                    )
+            except Exception as e:
+                log.warning("laudo_dossie ensure_os falhou: %s", e)
 
             # Colunas de `exams` que a view v_exams_overview NÃO expõe mas que o
             # laudo precisa (identificação completa §3, resultado oficial §4,
