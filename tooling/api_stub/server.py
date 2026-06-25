@@ -1186,9 +1186,9 @@ def list_os_v2(status: str | None = None, _sess: dict = Depends(require_session)
     # Fila do auditor E do supervisor: vídeos a partir da data de corte, apenas
     # da categoria B (1ª habilitação — o que entra no fluxo de auditoria). Não
     # só as divergências; cada exame ganha um sinalizador de status. Corte e
-    # categoria configuráveis por env; default 13/06/2026 + B (inclui a semana
+    # categoria configuráveis por env; default 27/05/2026 + B (inclui a semana
     # passada — exames de 13-14/06, já com resultado oficial — além da atual).
-    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
+    fila_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-05-27")
     fila_categoria = os.environ.get("VALBOT_FILA_CATEGORIA", "B")
     rows = db.list_resultados(desde=fila_desde, categoria=fila_categoria, limit=2000) or []
     # "Sem vídeo disponível" NÃO entra na Operação/fila: ingestão incompleta presa
@@ -4596,9 +4596,9 @@ def dashboard_valbot(
             _ind_cat = (os.environ.get("VALBOT_FILA_CATEGORIA", "B") or "B").strip().upper()[:1]
             if _ind_cat not in ("A", "B", "C", "D", "E"):
                 _ind_cat = "B"
-            _ind_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-06-13")
+            _ind_desde = os.environ.get("VALBOT_FILA_DESDE", "2026-05-27")
             _ind_desde = (
-                _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-06-13"
+                _ind_desde if _re.match(r"^\d{4}-\d{2}-\d{2}$", _ind_desde or "") else "2026-05-27"
             )
             vbase = (
                 f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
