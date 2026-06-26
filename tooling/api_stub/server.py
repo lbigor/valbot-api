@@ -4499,7 +4499,16 @@ def dashboard_valbot(
         "divergencia_por_examinador": [],
         "divergencia_por_unidade": [],
         "divergencia_por_categoria": [],
+        # FUNIL do indicador (regra Igor): topo = TODAS as categorias; depois só B;
+        # depois B com oficial. O front deve consumir ESTE objeto `funil`.
+        "funil": {
+            "recebidos_total": 0,  # passo 1 — todas as categorias (A/B/C/D/E)
+            "recebidos_catb": 0,  # passo 2 — só categoria 'B'
+            "com_resultado_oficial": 0,  # passo 3 — categoria 'B' COM oficial (A/R)
+        },
         # Indicador "recebidos × resultado oficial × anotações" (totais do período).
+        # recebidos_total/com_oficial_total = LEGADO (já escopados em cat B; mantidos
+        # estáveis p/ não quebrar o front). Use o objeto `funil` para o novo indicador.
         "recebidos_total": 0,
         "com_oficial_total": 0,
         "oficial_aprovado_total": 0,
@@ -4514,14 +4523,20 @@ def dashboard_valbot(
         with _db._conn() as c:  # type: ignore[attr-defined]
             if c is None:
                 return out
+            # `base` = todos os vídeos reais do período (TODAS as categorias) — usado
+            # SÓ no passo 1 do funil e na quebra por categoria. `base_b` = mesmo
+            # recorte escopado em categoria='B' — a REGRA (Igor): as métricas
+            # (recebidos/processados/custo/assertividade) contam só cat B (somar
+            # A/C/D/E é o bug do 839 vs 465 de 13/06).
             base = f"FROM exams WHERE gs_video LIKE 'gs://%'{cond}"
-            out["recebidos"] = c.execute(f"SELECT COUNT(*) {base}").fetchone()[0]
+            base_b = f"{base} AND upper(btrim(coalesce(categoria,''))) = 'B'"
+            out["recebidos"] = c.execute(f"SELECT COUNT(*) {base_b}").fetchone()[0]
             out["processados"] = c.execute(
-                f"SELECT COUNT(*) {base} AND status='processed'"
+                f"SELECT COUNT(*) {base_b} AND status='processed'"
             ).fetchone()[0]
             row = c.execute(
                 f"SELECT COALESCE(SUM(cost_usd),0), COALESCE(AVG(cost_usd),0) "
-                f"{base} AND cost_usd IS NOT NULL"
+                f"{base_b} AND cost_usd IS NOT NULL"
             ).fetchone()
             out["custo_total_usd"] = float(row[0] or 0)
             out["custo_por_video_usd"] = float(row[1] or 0)
@@ -4540,7 +4555,7 @@ def dashboard_valbot(
                 f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame), "
                 # pendentes de comitê (divergência crua ainda sem veredito ③)
                 f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) "
-                f"{base} {cj} AND exams.status='processed'"
+                f"{base_b} {cj} AND exams.status='processed'"
             ).fetchone()
             conc, div = int(arow[0] or 0), int(arow[1] or 0)
             pend = int(arow[2] or 0)
@@ -4555,7 +4570,7 @@ def dashboard_valbot(
             irow = c.execute(
                 f"SELECT COUNT(*) FILTER (WHERE resultado_exame='N'), "
                 f"COUNT(*) FILTER (WHERE resultado_exame IN ('A','R','N')) "
-                f"{base}"
+                f"{base_b}"
             ).fetchone()
             interromp, com_veredito = int(irow[0] or 0), int(irow[1] or 0)
             out["interrompidos"] = interromp
@@ -4566,7 +4581,10 @@ def dashboard_valbot(
             # Divergência PÓS-COMITÊ quebrada por dimensão. Mesmo critério da
             # assertividade: resolvidos (consenso OU divergência com comitê) no
             # denominador; pendentes de comitê expostos à parte por dimensão.
-            def _div_por(coluna: str, chave: str) -> list[dict]:
+            def _div_por(coluna: str, chave: str, scoped: bool = True) -> list[dict]:
+                # scoped=True → escopa em categoria='B' (regra Igor). A quebra
+                # por categoria é a EXCEÇÃO (scoped=False): mostra A/B/C/D/E.
+                _b = base_b if scoped else base
                 rows = c.execute(
                     f"SELECT COALESCE(NULLIF(TRIM(exams.{coluna}), ''), '—') AS k, "
                     f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
@@ -4574,7 +4592,7 @@ def dashboard_valbot(
                     f"COUNT(*) FILTER (WHERE ({_COMPARAVEL_RESOLVIDO_SQL}) "
                     f"  AND ({_RESULTADO_VALBOT_SQL}) <> resultado_exame) AS div, "
                     f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) AS pend "
-                    f"{base} {cj} AND exams.status='processed' "
+                    f"{_b} {cj} AND exams.status='processed' "
                     f"GROUP BY 1 ORDER BY div DESC, conc DESC"
                 ).fetchall()
                 res = []
@@ -4595,7 +4613,8 @@ def dashboard_valbot(
 
             out["divergencia_por_examinador"] = _div_por("examinador", "examinador")
             out["divergencia_por_unidade"] = _div_por("local_unidade", "unidade")
-            out["divergencia_por_categoria"] = _div_por("categoria", "categoria")
+            # by-category é cross-categoria de propósito → não escopa em B.
+            out["divergencia_por_categoria"] = _div_por("categoria", "categoria", scoped=False)
 
             # Indicador "recebidos × resultado oficial × anotações" — da view
             # canônica (v_exams_overview, migrations 027/028). Fonte única.
@@ -4628,6 +4647,26 @@ def dashboard_valbot(
             out["oficial_reprovado_total"] = int(trow[3] or 0)
             out["aguardando_oficial_total"] = int(trow[4] or 0)
             out["com_anotacoes_total"] = int(trow[5] or 0)
+
+            # --- FUNIL do indicador (regra Igor) ---------------------------------
+            # Mesmo recorte/janela do indicador (gs_video real + período + corte),
+            # numa única query sobre v_exams_overview SEM o filtro de categoria.
+            # passo 1 = todas as categorias; passo 2 = só B; passo 3 = B com oficial.
+            vbase_all = (
+                f"FROM v_exams_overview WHERE gs_video LIKE 'gs://%'{cond}"
+                f" AND created_at >= '{_ind_desde}'"
+            )
+            frow = c.execute(
+                f"SELECT COUNT(*), "
+                f"COUNT(*) FILTER (WHERE categoria = '{_ind_cat}'), "
+                f"COUNT(*) FILTER (WHERE categoria = '{_ind_cat}' AND resultado_oficial IS NOT NULL) "
+                f"{vbase_all}"
+            ).fetchone()
+            out["funil"] = {
+                "recebidos_total": int(frow[0] or 0),
+                "recebidos_catb": int(frow[1] or 0),
+                "com_resultado_oficial": int(frow[2] or 0),
+            }
 
             # Série diária. Com período → dentro do período; senão, últimos 14 dias.
             vol_where = (
@@ -4674,8 +4713,13 @@ def _diario_item(
     divergentes_val: int,
     divergentes_comite: int,
     pendentes_comite: int,
+    recebidos_total: int = 0,
 ) -> dict:
     """Monta uma linha (dia) da resposta de /api/dashboard/diario.
+
+    FUNIL (regra Igor): `recebidos_total` (todas as categorias) → `recebidos`
+    (== `recebidos_catb`, só categoria 'B') → `com_oficial` (== `com_resultado_oficial`,
+    cat 'B' com oficial). Todas as métricas exceto `recebidos_total` são cat B.
 
     Deriva os DOIS percentuais sobre o MESMO denominador (`comparaveis`):
       • discordancia_val_pct    = 100 * divergentes_val   / comparaveis
@@ -4689,6 +4733,11 @@ def _diario_item(
 
     return {
         "dia": dia,
+        # funil
+        "recebidos_total": recebidos_total,
+        "recebidos_catb": recebidos,
+        "com_resultado_oficial": com_oficial,
+        # legado / demais métricas (cat B)
         "recebidos": recebidos,
         "com_oficial": com_oficial,
         "auditados": auditados,
@@ -4768,6 +4817,9 @@ def dashboard_diario(
             # Difere do _COMPARAVEL_RESOLVIDO_SQL (que exclui pendentes de comitê)
             # — aqui pendentes SEGUEM no denominador, mas saem só do numerador da
             # discordância do Comitê. Não tocamos as constantes compartilhadas.
+            # REGRA Igor: as métricas (exceto o topo do funil recebidos_total)
+            # contam só categoria='B'. recebidos_total = todas as categorias.
+            catb_sql = "upper(btrim(coalesce(exams.categoria,''))) = 'B'"
             comparavel_sql = "resultado_exame IN ('A','R') AND aprovado IS NOT NULL"
             # ② Auditor Val (IA crua) discorda do examinador = consenso negado.
             divergente_val_sql = (
@@ -4788,13 +4840,14 @@ def dashboard_diario(
                 # Fonte = tabela `exams` (mesma do /api/dashboard/valbot, que
                 # funciona) + o laudo de comitê MAIS RECENTE (LEFT JOIN LATERAL).
                 "SELECT to_char(date_trunc('day', exams.created_at), 'YYYY-MM-DD') AS dia, "
-                "COUNT(*) AS recebidos, "
-                "COUNT(*) FILTER (WHERE resultado_exame IN ('A','R')) AS com_oficial, "
-                "COUNT(*) FILTER (WHERE aprovado IS NOT NULL) AS auditados, "
-                f"COUNT(*) FILTER (WHERE {comparavel_sql}) AS comparaveis, "
-                f"COUNT(*) FILTER (WHERE {divergente_val_sql}) AS divergentes_val, "
-                f"COUNT(*) FILTER (WHERE {divergente_comite_sql}) AS divergentes_comite, "
-                f"COUNT(*) FILTER (WHERE {_PENDENTE_COMITE_SQL}) AS pendentes_comite "
+                "COUNT(*) AS recebidos_total, "  # funil topo: TODAS as categorias
+                f"COUNT(*) FILTER (WHERE {catb_sql}) AS recebidos, "  # só cat B
+                f"COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') AND {catb_sql}) AS com_oficial, "
+                f"COUNT(*) FILTER (WHERE aprovado IS NOT NULL AND {catb_sql}) AS auditados, "
+                f"COUNT(*) FILTER (WHERE ({comparavel_sql}) AND {catb_sql}) AS comparaveis, "
+                f"COUNT(*) FILTER (WHERE ({divergente_val_sql}) AND {catb_sql}) AS divergentes_val, "
+                f"COUNT(*) FILTER (WHERE ({divergente_comite_sql}) AND {catb_sql}) AS divergentes_comite, "
+                f"COUNT(*) FILTER (WHERE ({_PENDENTE_COMITE_SQL}) AND {catb_sql}) AS pendentes_comite "
                 "FROM exams "
                 f"{_comite_join('exams')} "
                 "WHERE gs_video LIKE 'gs://%' "
@@ -4805,13 +4858,14 @@ def dashboard_diario(
             out["items"] = [
                 _diario_item(
                     dia=r[0],
-                    recebidos=int(r[1] or 0),
-                    com_oficial=int(r[2] or 0),
-                    auditados=int(r[3] or 0),
-                    comparaveis=int(r[4] or 0),
-                    divergentes_val=int(r[5] or 0),
-                    divergentes_comite=int(r[6] or 0),
-                    pendentes_comite=int(r[7] or 0),
+                    recebidos_total=int(r[1] or 0),
+                    recebidos=int(r[2] or 0),
+                    com_oficial=int(r[3] or 0),
+                    auditados=int(r[4] or 0),
+                    comparaveis=int(r[5] or 0),
+                    divergentes_val=int(r[6] or 0),
+                    divergentes_comite=int(r[7] or 0),
+                    pendentes_comite=int(r[8] or 0),
                 )
                 for r in rows
             ]

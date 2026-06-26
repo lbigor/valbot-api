@@ -205,32 +205,48 @@ FROM (
 
 # (3) v_exams_metrics — agregado diário, variação do mesmo core. CREATE OR
 # REPLACE: a overview acima foi DROP+CREATE com CASCADE, derrubando esta junto.
+#
+# REGRA DE NEGÓCIO (Igor): o Valbot HOJE analisa SOMENTE categoria 'B'. O
+# indicador abre com um FUNIL de 3 métricas (nesta ordem):
+#   1. recebidos_total            — TODAS as categorias (A/B/C/D/E).
+#   2. recebidos_catb             — só categoria 'B'.
+#   3. com_resultado_oficial_catb — categoria 'B' COM oficial (A/R).
+# Os DEMAIS contadores (aprovados, inaptos, divergentes, em_comite, em_auditoria,
+# concluidos, recebidos, etc.) passam a filtrar categoria='B' — somar A/C/D/E é
+# bug (ex.: 13/06 mostrava 839 em vez de 465 cat B). A view BASE (v_exams_overview)
+# e a leitura por hash NÃO são filtradas — só estes AGREGADOS.
 _SQL_V_EXAMS_METRICS = """
 CREATE OR REPLACE VIEW v_exams_metrics AS
 SELECT
   DATE_TRUNC('day', created_at)                       AS dia,
-  COUNT(*)                                            AS total_exames,
-  COUNT(*) FILTER (WHERE resultado = 'APROVADO')      AS aprovados,
-  COUNT(*) FILTER (WHERE resultado = 'INAPTO')        AS inaptos,
-  COUNT(*) FILTER (WHERE resultado = 'SEM_AVALIACAO') AS sem_avaliacao,
-  COUNT(*) FILTER (WHERE resultado = 'FALHOU')        AS falhos,
-  COUNT(*) FILTER (WHERE resultado = 'PROCESSANDO')   AS processando,
-  COUNT(*) FILTER (WHERE resultado = 'PENDENTE')      AS pendentes,
-  SUM(cost_usd)                                       AS custo_total_usd,
-  AVG(gemini_elapsed_s)                               AS gemini_avg_s,
-  SUM(size_bytes) / 1073741824.0                      AS gb_processados,
-  COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL) AS com_resultado_oficial,
-  COUNT(*) FILTER (WHERE oficial_pendente)              AS aguardando_oficial,
-  COUNT(*) FILTER (WHERE resultado_oficial = 'A')       AS oficial_aprovado,
-  COUNT(*) FILTER (WHERE resultado_oficial = 'R')       AS oficial_reprovado,
-  COUNT(*) FILTER (WHERE divergente)                    AS divergentes,
-  COUNT(*) FILTER (WHERE stage = 'comite')              AS em_comite,
-  COUNT(*) FILTER (WHERE stage = 'auditoria')           AS em_auditoria,
-  COUNT(*) FILTER (WHERE stage = 'concluido')           AS concluidos,
-  COUNT(*) FILTER (WHERE stage = 'aguardando' AND oficial_pendente)  AS recebidos,
-  COUNT(*) FILTER (WHERE stage = 'aguardando_oficial')               AS aguardando_oficial_ciclo,
-  COUNT(*) FILTER (WHERE tem_anotacoes)                                       AS com_anotacoes,
-  COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL AND tem_anotacoes)     AS completos
+  -- ── FUNIL (topo do indicador) ────────────────────────────────────────────
+  COUNT(*)                                            AS recebidos_total,
+  COUNT(*) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B') AS recebidos_catb,
+  COUNT(*) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B'
+                     AND resultado_oficial IS NOT NULL)             AS com_resultado_oficial_catb,
+  -- ── Demais métricas: SEMPRE escopadas em categoria='B' ────────────────────
+  COUNT(*) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B') AS total_exames,
+  COUNT(*) FILTER (WHERE resultado = 'APROVADO'      AND upper(btrim(coalesce(categoria,''))) = 'B') AS aprovados,
+  COUNT(*) FILTER (WHERE resultado = 'INAPTO'        AND upper(btrim(coalesce(categoria,''))) = 'B') AS inaptos,
+  COUNT(*) FILTER (WHERE resultado = 'SEM_AVALIACAO' AND upper(btrim(coalesce(categoria,''))) = 'B') AS sem_avaliacao,
+  COUNT(*) FILTER (WHERE resultado = 'FALHOU'        AND upper(btrim(coalesce(categoria,''))) = 'B') AS falhos,
+  COUNT(*) FILTER (WHERE resultado = 'PROCESSANDO'   AND upper(btrim(coalesce(categoria,''))) = 'B') AS processando,
+  COUNT(*) FILTER (WHERE resultado = 'PENDENTE'      AND upper(btrim(coalesce(categoria,''))) = 'B') AS pendentes,
+  SUM(cost_usd) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B')        AS custo_total_usd,
+  AVG(gemini_elapsed_s) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B') AS gemini_avg_s,
+  SUM(size_bytes) FILTER (WHERE upper(btrim(coalesce(categoria,''))) = 'B') / 1073741824.0 AS gb_processados,
+  COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL AND upper(btrim(coalesce(categoria,''))) = 'B') AS com_resultado_oficial,
+  COUNT(*) FILTER (WHERE oficial_pendente              AND upper(btrim(coalesce(categoria,''))) = 'B') AS aguardando_oficial,
+  COUNT(*) FILTER (WHERE resultado_oficial = 'A'       AND upper(btrim(coalesce(categoria,''))) = 'B') AS oficial_aprovado,
+  COUNT(*) FILTER (WHERE resultado_oficial = 'R'       AND upper(btrim(coalesce(categoria,''))) = 'B') AS oficial_reprovado,
+  COUNT(*) FILTER (WHERE divergente                    AND upper(btrim(coalesce(categoria,''))) = 'B') AS divergentes,
+  COUNT(*) FILTER (WHERE stage = 'comite'              AND upper(btrim(coalesce(categoria,''))) = 'B') AS em_comite,
+  COUNT(*) FILTER (WHERE stage = 'auditoria'           AND upper(btrim(coalesce(categoria,''))) = 'B') AS em_auditoria,
+  COUNT(*) FILTER (WHERE stage = 'concluido'           AND upper(btrim(coalesce(categoria,''))) = 'B') AS concluidos,
+  COUNT(*) FILTER (WHERE stage = 'aguardando' AND oficial_pendente AND upper(btrim(coalesce(categoria,''))) = 'B') AS recebidos,
+  COUNT(*) FILTER (WHERE stage = 'aguardando_oficial'  AND upper(btrim(coalesce(categoria,''))) = 'B') AS aguardando_oficial_ciclo,
+  COUNT(*) FILTER (WHERE tem_anotacoes                 AND upper(btrim(coalesce(categoria,''))) = 'B') AS com_anotacoes,
+  COUNT(*) FILTER (WHERE resultado_oficial IS NOT NULL AND tem_anotacoes AND upper(btrim(coalesce(categoria,''))) = 'B') AS completos
 FROM v_exams_overview
 GROUP BY DATE_TRUNC('day', created_at);
 """
@@ -1041,14 +1057,18 @@ def custos_agregados(dias: int = 30) -> dict | None:
         with _conn() as c:
             if c is None:
                 return None
+            # Escopo cat B (regra Igor: agregados contam só categoria='B'). A
+            # quebra por_categoria abaixo é a EXCEÇÃO — ela mostra a distribuição
+            # entre todas as categorias de propósito, então não leva este filtro.
+            _catb = "AND upper(btrim(coalesce(categoria,''))) = 'B'"
             row = c.execute(
-                """
+                f"""
                 SELECT COALESCE(SUM(cost_usd),0) AS total,
                        COUNT(*) FILTER (WHERE cost_usd IS NOT NULL) AS n,
                        COALESCE(SUM(cost_tokens_in),0) AS tin,
                        COALESCE(SUM(cost_tokens_out),0) AS tout,
                        COALESCE(SUM(cost_usd)/NULLIF(COUNT(*) FILTER (WHERE cost_usd IS NOT NULL),0),0) AS media
-                FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval
+                FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval {_catb}
                 """,
                 (janela,),
             ).fetchone()
@@ -1059,10 +1079,10 @@ def custos_agregados(dias: int = 30) -> dict | None:
                 out["tokens_out_total"] = int(row[3] or 0)
                 out["custo_medio_por_exame_usd"] = float(row[4] or 0)
             cur = c.execute(
-                """
+                f"""
                 SELECT to_char(date_trunc('day',created_at),'YYYY-MM-DD') AS dia,
                        COALESCE(SUM(cost_usd),0) AS custo, COUNT(*) AS n
-                FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval
+                FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval {_catb}
                 GROUP BY 1 ORDER BY 1
                 """,
                 (janela,),
@@ -1072,11 +1092,14 @@ def custos_agregados(dias: int = 30) -> dict | None:
                 for r in cur.fetchall()
             ]
             for chave, col in (("por_unidade", "local_unidade"), ("por_categoria", "categoria")):
+                # por_unidade leva o filtro cat B; por_categoria é a quebra entre
+                # categorias (mostra A/B/C/D/E de propósito) → sem filtro.
+                _fcatb = "" if col == "categoria" else _catb
                 cur = c.execute(
                     f"""
                     SELECT COALESCE(NULLIF({col},''),'N/D') AS rot,
                            COALESCE(SUM(cost_usd),0) AS custo, COUNT(*) AS n
-                    FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval
+                    FROM exams WHERE created_at >= NOW() - (%s || ' days')::interval {_fcatb}
                     GROUP BY 1 ORDER BY custo DESC LIMIT 50
                     """,
                     (janela,),
