@@ -9339,18 +9339,37 @@ def cron_runs(job_id: str, limit: int = 50, _sess: dict = Depends(require_sessio
 # ---------------------------------------------------------------------------
 _SCHEDULER = None  # singleton; None enquanto APScheduler não estiver disponível
 
+try:  # detecta a lib UMA vez no load do módulo
+    import apscheduler  # noqa: F401
+
+    _HAS_APSCHEDULER = True
+except Exception:
+    _HAS_APSCHEDULER = False
+
+# Estado do fallback app-level (thread daemon) — quando NÃO há APScheduler.
+_FALLBACK_SCHED_ON = False
+
 
 def _scheduler_status() -> dict:
-    """Estado do scheduler p/ a UI: disponível? rodando? quantos jobs?"""
-    try:
-        import apscheduler  # noqa: F401
+    """Estado do scheduler p/ a UI: disponível? rodando? quantos jobs?
 
-        disponivel = True
-    except Exception:
-        disponivel = False
+    `modo` distingue o backend ativo: 'apscheduler' (lib instalada e rodando),
+    'fallback' (loop app-level em thread daemon, sem a lib) ou 'manual' (nada
+    automático — só o trigger manual)."""
     rodando = _SCHEDULER is not None and getattr(_SCHEDULER, "running", False)
     n = len(_SCHEDULER.get_jobs()) if rodando else 0
-    return {"disponivel": disponivel, "rodando": rodando, "jobs_registrados": n}
+    if rodando:
+        modo = "apscheduler"
+    elif _FALLBACK_SCHED_ON:
+        modo = "fallback"
+    else:
+        modo = "manual"
+    return {
+        "disponivel": _HAS_APSCHEDULER,
+        "rodando": rodando or _FALLBACK_SCHED_ON,
+        "jobs_registrados": n,
+        "modo": modo,
+    }
 
 
 def _scheduler_sync() -> None:
@@ -9411,10 +9430,14 @@ def _start_scheduler() -> None:
     if os.environ.get("VALBOT_DISABLE_SCHEDULER") == "1":
         log.info("scheduler desabilitado via VALBOT_DISABLE_SCHEDULER=1")
         return
+    if not _HAS_APSCHEDULER:
+        # Sem a lib: o fallback app-level (_start_fallback_scheduler) assume.
+        log.info("APScheduler não instalado — usando fallback app-level (thread daemon)")
+        return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
     except Exception:
-        log.info("APScheduler não instalado — só trigger manual de cron-jobs disponível")
+        log.info("APScheduler não instalado — usando fallback app-level (thread daemon)")
         return
     try:
         _SCHEDULER = BackgroundScheduler(daemon=True)
@@ -9424,6 +9447,144 @@ def _start_scheduler() -> None:
     except Exception as e:
         log.warning("falha ao iniciar APScheduler: %s", e)
         _SCHEDULER = None
+
+
+# ---------------------------------------------------------------------------
+# Fallback app-level — scheduler em thread daemon SEM APScheduler.
+#
+# Quando a lib não está instalada no container (caso de prod), este loop
+# assume o papel: a cada ~60s lê os cron_jobs habilitados do DB, casa o horário
+# UTC corrente contra o cron_expr/schedule_kind e dispara a função do job
+# (_cron_job_func(escopo)) — que já grava o cron_job_runs. Mesmo padrão dos
+# workers _auto_queue_worker / _busca_oficial_worker (startup + Thread daemon).
+# ---------------------------------------------------------------------------
+def _cron_field_matches(field: str, value: int, lo: int, hi: int) -> bool:
+    """Casa UM campo de cron (minuto ou hora) contra `value`.
+
+    Suporta '*', listas ('0,30'), ranges ('3-8'), e a combinação dos dois
+    ('0,30' / '3-8'). `lo`/`hi` são os limites válidos do campo (0-59 minuto,
+    0-23 hora) — usados só pra sanear. Não suporta '*/n' (não é o nosso caso)."""
+    field = (field or "").strip()
+    if field == "" or field == "*":
+        return True
+    for part in field.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            if "-" in part:
+                a, b = part.split("-", 1)
+                start, end = int(a), int(b)
+                if start <= value <= end and lo <= value <= hi:
+                    return True
+            elif int(part) == value:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _cron_expr_matches_utc(cron_expr: str, tm: time.struct_time) -> bool:
+    """True se o `cron_expr` ('MIN HOUR DOM MON DOW') casa o instante UTC `tm`.
+
+    Implementação mínima p/ o nosso uso: avalia só MIN e HOUR (DOM/MON/DOW são
+    '*' nos nossos jobs). Sem dependência de lib de cron."""
+    parts = (cron_expr or "").split()
+    if len(parts) < 2:
+        return False
+    minuto, hora = parts[0], parts[1]
+    return _cron_field_matches(minuto, tm.tm_min, 0, 59) and _cron_field_matches(
+        hora, tm.tm_hour, 0, 23
+    )
+
+
+def _job_should_fire(job: dict, tm: time.struct_time) -> bool:
+    """Decide se o job deve disparar NESTE minuto UTC, por schedule_kind.
+
+    - cron   → casa cron_expr (MIN HOUR ...).
+    - daily  → 'HH:MM' bate hora E minuto exatos.
+    - hourly → dispara no minuto 0 de toda hora.
+    Outros kinds (interval) não são suportados pelo fallback (no-op)."""
+    kind = job.get("schedule_kind")
+    if kind == "cron":
+        expr = job.get("cron_expr")
+        return bool(expr) and _cron_expr_matches_utc(expr, tm)
+    if kind == "daily":
+        horario = str(job.get("horario") or "")
+        if ":" not in horario:
+            return False
+        try:
+            hh, mm = horario.split(":", 1)
+            return tm.tm_hour == int(hh) and tm.tm_min == int(mm)
+        except ValueError:
+            return False
+    if kind == "hourly":
+        return tm.tm_min == 0
+    return False
+
+
+@app.on_event("startup")
+def _start_fallback_scheduler() -> None:
+    """Scheduler app-level (sem APScheduler) — thread daemon que dispara os
+    cron_jobs habilitados nos horários UTC casados pelo cron_expr/schedule_kind.
+
+    Só liga quando a lib NÃO está instalada (senão o APScheduler já cuida) e o
+    scheduler não foi desligado por env. Granularidade = 1 minuto (acorda a cada
+    ~60s). Anti-duplo-disparo: guarda em memória o último 'YYYY-MM-DD HH:MM' UTC
+    disparado POR job_id, então nunca roda 2x no mesmo minuto.
+
+    Robusto: cada job é isolado em try/except — a falha de um não derruba o loop
+    nem os demais. As próprias funções de job (_cron_job_func) gravam o
+    cron_job_runs; o loop só decide QUANDO disparar."""
+    global _FALLBACK_SCHED_ON
+    if os.environ.get("VALBOT_DISABLE_SCHEDULER") == "1":
+        return
+    if _HAS_APSCHEDULER:
+        return  # APScheduler assume; não duplicar
+
+    def _runner() -> None:
+        time.sleep(30)  # boot estabiliza (depois dos outros workers)
+        log.info("cron app-level: fallback ON (APScheduler ausente) — checando a cada 60s")
+        ultimo_disparo: dict[str, str] = {}  # job_id -> 'YYYY-MM-DD HH:MM' UTC
+        while True:
+            try:
+                tm = time.gmtime(time.time())  # UTC (container roda em UTC)
+                slot = time.strftime("%Y-%m-%d %H:%M", tm)
+                jobs = db.list_cron_jobs() or []
+                for job in jobs:
+                    try:
+                        if not job.get("enabled"):
+                            continue
+                        job_id = str(job.get("id"))
+                        if ultimo_disparo.get(job_id) == slot:
+                            continue  # já disparou neste minuto
+                        if not _job_should_fire(job, tm):
+                            continue
+                        ultimo_disparo[job_id] = slot
+                        escopo = job.get("escopo") or "pending"
+                        log.info(
+                            "cron app-level: disparando '%s' (id=%s escopo=%s slot=%s UTC)",
+                            job.get("nome"),
+                            job_id,
+                            escopo,
+                            slot,
+                        )
+                        # Chamada SÍNCRONA dentro da thread do scheduler: as funções
+                        # de job são resilientes (nunca levantam) e gravam o run.
+                        _cron_job_func(escopo)(
+                            job_id,
+                            job.get("batch_limit") or 50,
+                            escopo,
+                            job.get("categoria"),
+                        )
+                    except Exception:
+                        log.exception("cron app-level: falha ao processar job id=%s", job.get("id"))
+            except Exception:
+                log.exception("cron app-level: erro no loop do scheduler")
+            time.sleep(60)
+
+    _FALLBACK_SCHED_ON = True
+    threading.Thread(target=_runner, daemon=True, name="cron-fallback").start()
 
 
 # ---------------------------------------------------------------------------
