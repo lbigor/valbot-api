@@ -593,11 +593,32 @@ def _process_one_claimed(h: str) -> str:
                 err = (r[0] or "") if r else ""
         except Exception:
             pass
-        if st == "failed" and ("429" in err or "exhaust" in err.lower()):
-            db.update_status(h, "queued")  # tenta de novo depois
-            log.warning("auto-queue 429 em %s — re-enfileirado", h[:12])
-            return "requeued_429"
-        return "done" if st != "failed" else "failed"
+        if st == "failed":
+            el = err.lower()
+            is_quota = "429" in err or "exhaust" in el or "resource_exhausted" in el
+            if is_quota:
+                # QUOTA: re-enfileira (backoff aplicado pelo loop) e NÃO conta
+                # tentativa — quota não é culpa do exame, retenta quando voltar.
+                db.update_status(h, "queued")
+                log.warning(
+                    "auto-queue 429/quota em %s — re-enfileirado (sem contar tentativa)", h[:12]
+                )
+                return "requeued_429"
+            # ERRO REAL (ex.: 400 INVALID_ARGUMENT): conta tentativa com TETO de 5.
+            n = db.bump_retry_non_quota(h)
+            if n < 5:
+                db.update_status(h, "queued")  # nova tentativa (mantém error)
+                log.warning(
+                    "auto-queue erro real em %s (tentativa %d/5) — re-enfileirado", h[:12], n
+                )
+                return "requeued_retry"
+            # Teto atingido → FALHA TERMINAL: já está 'failed' com error setado; não
+            # re-enfileira mais. Garante o estado terminal sem mexer no error.
+            log.error(
+                "auto-queue erro real em %s atingiu o teto (%d/5) — FALHA TERMINAL", h[:12], n
+            )
+            return "failed"
+        return "done"
     except Exception:
         log.exception("auto-queue erro ao processar %s", h[:12])
         try:
@@ -698,11 +719,14 @@ def _auto_queue_worker() -> None:
                 done = results.count("done")
                 failed = results.count("failed")
                 requeued = results.count("requeued_429")
+                requeued_retry = results.count("requeued_retry")
                 log.info(
-                    "auto-queue lote concluído: %d ok, %d falha, %d re-enfileirado (429)",
+                    "auto-queue lote concluído: %d ok, %d falha terminal, "
+                    "%d re-enfileirado (429), %d re-enfileirado (retry real)",
                     done,
                     failed,
                     requeued,
+                    requeued_retry,
                 )
 
                 # 3) Backoff exponencial se houve 429/quota no lote; senão respira leve.
@@ -779,6 +803,7 @@ _SPA_ACTION_RE = re.compile(
     r"|[^/]+/buscar-resultado"  # busca single do resultado oficial (TechPrático)
     r"|buscar-resultados"  # busca em LOTE (botão "Buscar lote" do Kanban)
     r"|process-pending"
+    r"|enqueue-pendentes-catb"  # enfileiramento em massa cat B (overnight)
     r"|enviar-laudos"
     r"|[^/]+/parecer-auditor"
     r")$"
@@ -3266,6 +3291,40 @@ def process_pending_exams(
         "hashes": enfileirados,
         "detalhe_erros": erros,
     }
+
+
+class _EnqueueCatbIn(BaseModel):
+    desde: str | None = Field(
+        None,
+        description="Data de corte YYYY-MM-DD (created_at::date >=). Default 2026-05-30.",
+    )
+
+
+@app.post("/api/exams/enqueue-pendentes-catb")
+def enqueue_pendentes_catb(
+    desde: str | None = Query(None, description="YYYY-MM-DD (override do body)"),
+    data: _EnqueueCatbIn | None = Body(default=None),
+    _sess: dict = Depends(require_session),
+):
+    """Enfileira em LOTE (status→'queued') os exames CAT B prontos pra rodar —
+    COM resultado oficial (resultado_exame A/R), sem veredito da IA ainda
+    (aprovado IS NULL), com vídeo no GCS, abaixo do teto de retentativas reais
+    (retry_count_non_quota < 5) e ainda não em fila/execução. Idempotente: um
+    UPDATE em lote (db.enqueue_pendentes_catb). O worker auto-queue drena.
+
+    Respeita a regra dura: só categoria B; IA só APÓS oficial (não força sem
+    oficial). `desde` (query OU body, default 2026-05-30) é o corte por
+    created_at::date. Devolve {enfileirados, por_dia}."""
+    d = (data.desde if data and data.desde else None) or desde or "2026-05-30"
+    d = d.strip()
+    try:
+        datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(422, f"desde inválido: '{d}' — use YYYY-MM-DD")
+    res = db.enqueue_pendentes_catb(d)
+    if res is None:
+        return {"enfileirados": 0, "por_dia": {}, "desde": d, "source": "mock"}
+    return {**res, "desde": d, "source": "db"}
 
 
 @app.post("/api/exams/enviar-laudos")
@@ -8912,6 +8971,125 @@ def _run_batch_job(
         )
 
 
+# ---------------------------------------------------------------------------
+# Job da MADRUGADA — processamento overnight cat B.
+#
+# TZ: o APScheduler sobe com BackgroundScheduler() SEM timezone explícita →
+# usa tzlocal, que no container (sem TZ no Dockerfile/compose) cai em UTC. A
+# janela desejada é a madrugada do Igor (BRT, UTC-3), a cada 30 min, 00h–06h.
+# Logo, em UTC: '0,30 3-8 * * *' = 00:00–05:30 BRT (03:00–08:30 UTC). Override
+# via env se algum dia a TZ do container mudar.
+# ---------------------------------------------------------------------------
+_CATB_OVERNIGHT_NOME = "processar_catb_madrugada"
+_CATB_OVERNIGHT_CRON = os.environ.get("VALBOT_CATB_OVERNIGHT_CRON", "0,30 3-8 * * *")
+_CATB_OVERNIGHT_DESDE = os.environ.get("VALBOT_CATB_OVERNIGHT_DESDE", "2026-05-30")
+_CATB_OVERNIGHT_ESCOPO = "catb_overnight"
+_CATB_OVERNIGHT_BATCH = int(os.environ.get("VALBOT_CATB_OVERNIGHT_BATCH", "500") or "500")
+
+
+def _run_catb_overnight(
+    job_id: str | None,
+    batch_limit: int = _CATB_OVERNIGHT_BATCH,
+    escopo: str = _CATB_OVERNIGHT_ESCOPO,
+    categoria: str | None = "B",
+) -> None:
+    """Job da madrugada (assinatura uniforme com _run_batch_job p/ o scheduler).
+
+    (a) ENFILEIRA em massa os cat B com oficial prontos (recebido/processed-sem-
+        veredito/failed com retry<5 → queued) via db.enqueue_pendentes_catb —
+        o worker auto-queue (drena CAT B sozinho) processa o resto;
+    (b) PASSE DE COMITÊ best-effort nos divergentes que travaram sem Comitê
+        (reusa tooling.reprocessar_comite.reprocessar_comite_lote, que é db-guarded
+        e nunca lança por exame). Desligável com VALBOT_CATB_OVERNIGHT_COMITE=0.
+
+    Grava um cron_job_runs (n_processados = enfileirados; n_falhas = erros do
+    comitê). Resiliente: nunca levanta (roda no scheduler/background)."""
+    run_id = db.start_cron_run(job_id)
+    enfileirados = 0
+    n_falhas = 0
+    try:
+        res = db.enqueue_pendentes_catb(_CATB_OVERNIGHT_DESDE)
+        enfileirados = int((res or {}).get("enfileirados", 0))
+        log.info(
+            "cron madrugada: %d cat B enfileirado(s) (desde=%s) por_dia=%s",
+            enfileirados,
+            _CATB_OVERNIGHT_DESDE,
+            (res or {}).get("por_dia", {}),
+        )
+        # (b) passe de comitê opcional nos divergentes pendentes
+        if os.environ.get("VALBOT_CATB_OVERNIGHT_COMITE", "1") == "1":
+            try:
+                from tooling.reprocessar_comite import reprocessar_comite_lote
+
+                rc = reprocessar_comite_lote(apply=True, limite=batch_limit)
+                n_falhas += int(rc.get("erro", 0))
+                log.info(
+                    "cron madrugada: passe de comitê total=%d ok=%d erro=%d retentar=%d",
+                    rc.get("total", 0),
+                    rc.get("ok", 0),
+                    rc.get("erro", 0),
+                    rc.get("retentar", 0),
+                )
+            except Exception as e:  # noqa: BLE001 — comitê é best-effort
+                log.warning("cron madrugada: passe de comitê falhou: %s", e)
+        db.finish_cron_run(
+            run_id, n_processados=enfileirados, n_falhas=n_falhas, custo_usd=0.0, status="success"
+        )
+    except Exception as e:
+        log.exception("cron madrugada crashed job=%s: %s", job_id, e)
+        db.finish_cron_run(
+            run_id, n_processados=enfileirados, n_falhas=n_falhas, custo_usd=0.0, status="failed"
+        )
+
+
+def _cron_job_func(escopo: str | None):
+    """Roteia o escopo do job pra função certa: 'catb_overnight' →
+    _run_catb_overnight; resto → _run_batch_job genérico."""
+    return _run_catb_overnight if escopo == _CATB_OVERNIGHT_ESCOPO else _run_batch_job
+
+
+def _ensure_catb_overnight_job() -> None:
+    """Garante (idempotente, por nome) o cron_job 'processar_catb_madrugada' no DB.
+
+    O CD de prod NÃO roda migrate.sh, então o seed vive no boot: se já existe um
+    job com esse nome, no-op; senão cria (schedule_kind='cron', cron_expr da
+    janela BRT em UTC, escopo='catb_overnight', categoria='B', enabled). Roda
+    ANTES do _scheduler_sync (que registra os jobs habilitados no APScheduler)."""
+    try:
+        jobs = db.list_cron_jobs()
+        if jobs is None:
+            log.info("cron seed: DB off — pulando seed do '%s'", _CATB_OVERNIGHT_NOME)
+            return
+        if any(j.get("nome") == _CATB_OVERNIGHT_NOME for j in jobs):
+            log.info("cron seed: '%s' já existe — no-op", _CATB_OVERNIGHT_NOME)
+            return
+        created = db.create_cron_job(
+            nome=_CATB_OVERNIGHT_NOME,
+            enabled=True,
+            schedule_kind="cron",
+            cron_expr=_CATB_OVERNIGHT_CRON,
+            batch_limit=_CATB_OVERNIGHT_BATCH,
+            retry=0,
+            escopo=_CATB_OVERNIGHT_ESCOPO,
+            categoria="B",
+        )
+        log.info(
+            "cron seed: '%s' criado (cron_expr='%s' UTC = 00:00–05:30 BRT) id=%s",
+            _CATB_OVERNIGHT_NOME,
+            _CATB_OVERNIGHT_CRON,
+            (created or {}).get("id"),
+        )
+    except Exception:
+        log.exception("cron seed: falha ao garantir '%s' (boot segue)", _CATB_OVERNIGHT_NOME)
+
+
+@app.on_event("startup")
+def _seed_catb_overnight_cron() -> None:
+    """Startup hook do seed — registrado ANTES de _start_scheduler (ordem textual)
+    pra que o job já esteja no DB quando o _scheduler_sync rodar."""
+    _ensure_catb_overnight_job()
+
+
 class _CronTriggerIn(BaseModel):
     categoria: str | None = Field(
         None,
@@ -8943,7 +9121,8 @@ def cron_trigger(
         if body_cat is not None
         else _norm_categoria((job or {}).get("categoria"))
     )
-    background.add_task(_run_batch_job, job_id, batch_limit, escopo, categoria)
+    # Roteia pro job certo conforme o escopo (catb_overnight → _run_catb_overnight).
+    background.add_task(_cron_job_func(escopo), job_id, batch_limit, escopo, categoria)
     return {
         "triggered": True,
         "job_id": job_id,
@@ -9014,13 +9193,14 @@ def _scheduler_sync() -> None:
                 trigger = CronTrigger(minute=0)
             if trigger is None:
                 continue
+            escopo = job.get("escopo") or "pending"
             _SCHEDULER.add_job(
-                _run_batch_job,
+                _cron_job_func(escopo),
                 trigger,
                 args=[
                     job["id"],
                     job.get("batch_limit") or 50,
-                    job.get("escopo") or "pending",
+                    escopo,
                     job.get("categoria"),
                 ],
                 id=str(job["id"]),
