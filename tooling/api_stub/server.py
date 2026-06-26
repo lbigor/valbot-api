@@ -4823,7 +4823,9 @@ def dashboard_diario(
       • recebidos   — exames recebidos no dia.
       • com_oficial — dos recebidos, quantos têm resultado oficial DEFINITIVO do
                       examinador (resultado_exame ∈ {A,R}; "N"/NULL não conta).
-      • auditados   — quantos a IA Val avaliou (`aprovado IS NOT NULL`).
+      • auditados   — quantos a IA Val avaliou ENTRE os COM oficial (subconjunto
+                      de com_oficial): resultado_exame ∈ {A,R} AND aprovado IS
+                      NOT NULL (== comparavel_sql). Garante % Auditado ≤ 100%.
       • comparaveis — universo de vídeos ANALISADOS do dia que entram nas DUAS
                       contas: resultado_exame ∈ {A,R} AND aprovado IS NOT NULL.
                       É o ÚNICO denominador das duas discordâncias.
@@ -4902,7 +4904,7 @@ def dashboard_diario(
                 "COUNT(*) AS recebidos_total, "  # funil topo: TODAS as categorias
                 f"COUNT(*) FILTER (WHERE {catb_sql}) AS recebidos, "  # só cat B
                 f"COUNT(*) FILTER (WHERE resultado_exame IN ('A','R') AND {catb_sql}) AS com_oficial, "
-                f"COUNT(*) FILTER (WHERE aprovado IS NOT NULL AND {catb_sql}) AS auditados, "
+                f"COUNT(*) FILTER (WHERE ({comparavel_sql}) AND {catb_sql}) AS auditados, "
                 f"COUNT(*) FILTER (WHERE ({comparavel_sql}) AND {catb_sql}) AS comparaveis, "
                 f"COUNT(*) FILTER (WHERE ({divergente_val_sql}) AND {catb_sql}) AS divergentes_val, "
                 f"COUNT(*) FILTER (WHERE ({divergente_comite_sql}) AND {catb_sql}) AS divergentes_comite, "
