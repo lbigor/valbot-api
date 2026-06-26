@@ -276,6 +276,20 @@ _SCHEMA_COLUMNS = (
         "supervisor_decisoes.homologar_conduta",
         "ALTER TABLE supervisor_decisoes ADD COLUMN IF NOT EXISTS homologar_conduta BOOLEAN NOT NULL DEFAULT FALSE",
     ),
+    # exams.retry_count_non_quota (037) — teto de retentativas de FALHA REAL
+    # (não-quota) do processamento automático. Quota (429) NÃO conta. >=5 = falha
+    # terminal. Lida/gravada por bump_retry_non_quota / get_retry_non_quota e pelo
+    # filtro de enqueue_pendentes_catb.
+    (
+        "exams.retry_count_non_quota",
+        "ALTER TABLE exams ADD COLUMN IF NOT EXISTS retry_count_non_quota INTEGER DEFAULT 0",
+    ),
+    # cron_jobs.categoria — filtro de categoria CNH do batch (lida/gravada pelo
+    # código sem migration própria); necessária pro seed do cron da madrugada.
+    (
+        "cron_jobs.categoria",
+        "ALTER TABLE cron_jobs ADD COLUMN IF NOT EXISTS categoria VARCHAR(5)",
+    ),
 )
 
 
@@ -768,6 +782,96 @@ def fetch_status(hash_: str) -> str | None:
             return row[0] if row else None
     except Exception as e:
         log.warning("db.fetch_status falhou hash=%s: %s", hash_[:12], e)
+        return None
+
+
+def bump_retry_non_quota(hash_: str) -> int:
+    """Incrementa exams.retry_count_non_quota (+1) e devolve o NOVO valor.
+
+    Contador de FALHAS REAIS (não-quota) do processamento automático. O worker
+    chama isto a cada falha que NÃO seja 429/quota; ao chegar em 5 o exame vira
+    falha terminal. Devolve 0 se DB off / exame inexistente / erro (caller trata
+    0 como "não atingiu o teto", seguro)."""
+    if _DISABLED:
+        return 0
+    try:
+        with _conn() as c:
+            if c is None:
+                return 0
+            row = c.execute(
+                "UPDATE exams "
+                "SET retry_count_non_quota = COALESCE(retry_count_non_quota, 0) + 1 "
+                "WHERE hash = %s RETURNING retry_count_non_quota",
+                (hash_,),
+            ).fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+    except Exception as e:
+        log.exception("db.bump_retry_non_quota falhou hash=%s: %s", hash_[:12], e)
+        return 0
+
+
+def get_retry_non_quota(hash_: str) -> int:
+    """SELECT COALESCE(retry_count_non_quota,0) FROM exams WHERE hash=... — 0 se
+    DB off / inexistente / erro."""
+    if _DISABLED:
+        return 0
+    try:
+        with _conn() as c:
+            if c is None:
+                return 0
+            row = c.execute(
+                "SELECT COALESCE(retry_count_non_quota, 0) FROM exams WHERE hash = %s",
+                (hash_,),
+            ).fetchone()
+            return int(row[0]) if row else 0
+    except Exception as e:
+        log.warning("db.get_retry_non_quota falhou hash=%s: %s", hash_[:12], e)
+        return 0
+
+
+def enqueue_pendentes_catb(desde: str = "2026-05-30") -> dict | None:
+    """Promove a `queued` (em LOTE, idempotente) os exames CAT B prontos pra rodar.
+
+    Critério (regra dura do Valbot — só cat B, IA só APÓS oficial):
+      • categoria='B';
+      • aprovado IS NULL (sem veredito da IA ainda);
+      • resultado_exame oficial em ('A','R') — COM oficial presencial;
+      • gs_video em 'gs://%' (vídeo no GCS, recuperável);
+      • retry_count_non_quota < 5 (não estourou o teto de falhas reais);
+      • status NÃO em ('queued','running') — não re-mexe no que já está na fila;
+      • created_at::date >= `desde` (default 2026-05-30, parametrizável).
+
+    Promove recebido/processed-sem-veredito/failed(retry<5) → queued. O worker
+    auto-queue drena. Devolve {'enfileirados': N, 'por_dia': {YYYY-MM-DD: n}} ou
+    None se DB off. NÃO toca aprovado/resultado_exame (cofre)."""
+    if _disabled():
+        return None
+    try:
+        with _conn() as c:
+            if c is None:
+                return None
+            rows = c.execute(
+                """
+                UPDATE exams SET status = 'queued'
+                WHERE categoria = 'B'
+                  AND aprovado IS NULL
+                  AND upper(btrim(coalesce(resultado_exame, ''))) IN ('A', 'R')
+                  AND gs_video LIKE 'gs://%%'
+                  AND coalesce(retry_count_non_quota, 0) < 5
+                  AND status NOT IN ('queued', 'running')
+                  AND created_at::date >= %s
+                RETURNING to_char(created_at AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM-DD')
+                """,
+                (desde,),
+            ).fetchall()
+            por_dia: dict[str, int] = {}
+            for (dia,) in rows:
+                por_dia[dia] = por_dia.get(dia, 0) + 1
+            total = len(rows)
+            log.info("db.enqueue_pendentes_catb desde=%s enfileirados=%d", desde, total)
+            return {"enfileirados": total, "por_dia": por_dia}
+    except Exception as e:
+        log.exception("db.enqueue_pendentes_catb falhou desde=%s: %s", desde, e)
         return None
 
 
