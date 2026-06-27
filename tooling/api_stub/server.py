@@ -8725,6 +8725,60 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     except Exception as e:  # noqa: BLE001
         log.warning("laudo v2 bloco comentarios falhou %s: %s", hash[:12], e)
 
+    # ===== checklist técnico (Anexo K) ======================================
+    # Os 12 itens vistos obrigatoriamente pelo Monitoramento (DETRAN-SE, Anexo K).
+    # INFORMATIVO: não pontua nem altera `aprovado`. Lê do MESMO bloco que o
+    # /laudo-json expõe (blocos["6_cobertura"]["checklist_anexo_k"]) via
+    # _laudo_blocos_14_2 — fonte única p/ web e PDF; nada é recalculado aqui.
+    # Best-effort: lista vazia/ausente → "—"; qualquer falha não derruba o doc.
+    try:
+        _chk_list = []
+        try:
+            _laudo_chk = _laudo_blocos_14_2(hash) or {}
+            _cob = (_laudo_chk.get("blocos") or {}).get("6_cobertura") or {}
+            _raw_chk = _cob.get("checklist_anexo_k")
+            if isinstance(_raw_chk, list):
+                _chk_list = _raw_chk
+        except Exception:  # noqa: BLE001
+            _chk_list = []
+        # vocabulário FECHADO {SIM,NAO,ATENCAO,NAO_AVALIAVEL} → rótulo + classe css
+        _vere_map = {
+            "SIM": ("Sim", "chk-sim"),
+            "NAO": ("Não", "chk-nao"),
+            "ATENCAO": ("Atenção", "chk-atencao"),
+            "NAO_AVALIAVEL": ("Não avaliável", "chk-na"),
+        }
+        if _chk_list:
+            linhas = []
+            for _it in _chk_list:
+                if not isinstance(_it, dict):
+                    continue
+                _num = _it.get("id")
+                _txt = _it.get("item") or "—"
+                _ver_raw = str(_it.get("veredito") or "").strip().upper()
+                _ver_lbl, _ver_cls = _vere_map.get(_ver_raw, ("—", "chk-na"))
+                _evid = _it.get("evidencia") or "—"
+                linhas.append(f"""
+      <tr>
+        <td style="text-align:center">{_esc_v2(_num)}. {_esc_v2(_txt)}</td>
+        <td style="text-align:center"><span class="badge {_ver_cls}">{_esc_v2(_ver_lbl)}</span></td>
+        <td class="evid">{_esc_v2(_evid)}</td>
+      </tr>""")
+            blocos.append(f"""
+    <h2>5. Checklist (Anexo K) — Itens vistos obrigatoriamente pelo Monitoramento</h2>
+    <p class="note">Verificação técnica informativa dos 12 itens do Anexo K (DETRAN-SE).
+    Não pontua nem altera o resultado do exame — registra a conformidade do monitoramento.</p>
+    <table class="inf">
+      <tr><th style="width:62%">Item</th><th style="width:13%">Veredito</th><th>Evidência</th></tr>
+      {"".join(linhas)}
+    </table>""")
+        else:
+            blocos.append("""
+    <h2>5. Checklist (Anexo K) — Itens vistos obrigatoriamente pelo Monitoramento</h2>
+    <p class="vazio">—</p>""")
+    except Exception as e:  # noqa: BLE001
+        log.warning("laudo v2 bloco checklist anexo k falhou %s: %s", hash[:12], e)
+
     # ===== reconciliação / parecer do auditor (best-effort) =================
     try:
         parecer = None
@@ -8740,7 +8794,7 @@ def _laudo_pdf_v2_html(hash: str) -> str:
             parecer = None
         if parecer and str(parecer).strip():
             blocos.append(f"""
-    <h2>5. Parecer do Auditor</h2>
+    <h2>6. Parecer do Auditor</h2>
     <p class="note">{_esc_v2(parecer)}</p>""")
     except Exception as e:  # noqa: BLE001
         log.warning("laudo v2 bloco parecer falhou %s: %s", hash[:12], e)
@@ -8794,6 +8848,10 @@ def _laudo_pdf_v2_html(hash: str) -> str:
     .badge.media {{ background:#ca8a04; }}
     .badge.leve {{ background:#2563eb; }}
     .badge.etica {{ background:#7c3aed; }}
+    .badge.chk-sim {{ background:#0b7a44; }}
+    .badge.chk-nao {{ background:#b42318; }}
+    .badge.chk-atencao {{ background:#d97706; }}
+    .badge.chk-na {{ background:#8a948f; }}
     .note {{ font-size:10px; color:#444; margin:6px 0; }}
     .vazio {{ color:#999; font-style:italic; margin:6px 0; }}
     .foot {{ margin-top:16px; font-size:8.5px; color:#777; border-top:1px solid #e3e8e5; padding-top:7px; }}
