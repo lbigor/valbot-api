@@ -910,20 +910,28 @@ REGRAS DURAS:
     "ATENCAO" (parcial/dúvida observável) ou "NAO_AVALIAVEL" (fora do alcance da
     análise de vídeo/áudio). `evidencia` = frase factual curta (cite ts/câmera/
     áudio); vazia só quando NAO_AVALIAVEL. NA DÚVIDA entre SIM e NAO → "ATENCAO".
-    Os 12 itens (id → item):
-      1  Biometria do candidato confere        → SEMPRE "NAO_AVALIAVEL"
+    Os 12 itens (id → item, TEXTO OFICIAL Anexo K / DETRAN-SE):
+      1  A biometria digital e facial registrada no sistema para liberação do
+         Exame prático foi a do candidato?   → SEMPRE "NAO_AVALIAVEL"
          (identidade biométrica não é verificável por vídeo).
-      2  Gravação completa do início ao fim    (use o mesmo sinal de cobertura_integral)
-      3  Examinadora finalizou após candidata sair
-      4  Examinadora uniformizada/identificada
-      5  Informou faltas durante a gravação    (áudio do examinador)
-      6  Informou resultado INAPTO na gravação (áudio do examinador)
-      7  Tratamento respeitoso
-      8  Câmeras reguladas e funcionando
-      9  Câmeras nítidas e sincronizadas
-      10 Áudio sem interrupções/delay
-      11 Sem queixa de problema mecânico
-      12 Comportamento adequado dos envolvidos
+      2  A gravação do Exame Prático está completa — imagens do início ao fim?
+         (use o mesmo sinal de cobertura_integral)
+      3  O Examinador finalizou o Exame Prático, após o candidato sair do veículo?
+      4  O Examinador estava com a farda ou o crachá de identificação?
+      5  O Examinador informou as faltas ao candidato durante a gravação do exame?
+         (áudio do examinador)
+      6  O Examinador informou ao candidato, durante a gravação do Exame, o
+         resultado INAPTO deixando-o registrado nas filmagens? (Se o
+         pré-resultado for APTO, desconsiderar a pergunta).   (áudio do examinador)
+      7  Houve tratamento respeitoso entre os envolvidos no Exame Prático durante
+         toda a avaliação?
+      8  Todas as câmeras estavam reguladas e funcionando durante todo o Exame?
+      9  Todas as câmeras apresentaram as imagens nítidas e sincronizadas entre si
+         durante todo o Exame Prático?
+      10 A existência do áudio na gravação do exame ocorreu do início ao fim sem
+         interrupções? Há ausência de delay nas gravações?
+      11 Há ausência de queixa sobre problema mecânico no veículo?
+      12 Há ausência de comportamento estranho por parte dos envolvidos no Exame?
 
 ═══════════════════════════════════════════════════════════════
 PRINCÍPIO SUPREMO E INVIOLÁVEL — IN DUBIO, NÃO APONTAR
@@ -1645,18 +1653,60 @@ def _normalize_cobertura(raw: dict) -> dict:
 # Os 12 itens FIXOS do checklist técnico Anexo K (Res. CONTRAN 1.020/2025).
 # Ordem e textos são normativos — o modelo só preenche o veredito por `id`.
 _ANEXO_K_ITENS: tuple[tuple[int, str], ...] = (
-    (1, "Biometria do candidato confere"),
-    (2, "Gravação completa do início ao fim"),
-    (3, "Examinadora finalizou após candidata sair"),
-    (4, "Examinadora uniformizada/identificada"),
-    (5, "Informou faltas durante a gravação"),
-    (6, "Informou resultado INAPTO na gravação"),
-    (7, "Tratamento respeitoso"),
-    (8, "Câmeras reguladas e funcionando"),
-    (9, "Câmeras nítidas e sincronizadas"),
-    (10, "Áudio sem interrupções/delay"),
-    (11, "Sem queixa de problema mecânico"),
-    (12, "Comportamento adequado dos envolvidos"),
+    (
+        1,
+        "A biometria digital e facial registrada no sistema para liberação do "
+        "Exame prático foi a do candidato?",
+    ),
+    (
+        2,
+        "A gravação do Exame Prático está completa — imagens do início ao fim?",
+    ),
+    (
+        3,
+        "O Examinador finalizou o Exame Prático, após o candidato sair do veículo?",
+    ),
+    (
+        4,
+        "O Examinador estava com a farda ou o crachá de identificação?",
+    ),
+    (
+        5,
+        "O Examinador informou as faltas ao candidato durante a gravação do exame?",
+    ),
+    (
+        6,
+        "O Examinador informou ao candidato, durante a gravação do Exame, o "
+        "resultado INAPTO deixando-o registrado nas filmagens? (Se o "
+        "pré-resultado for APTO, desconsiderar a pergunta).",
+    ),
+    (
+        7,
+        "Houve tratamento respeitoso entre os envolvidos no Exame Prático "
+        "durante toda a avaliação?",
+    ),
+    (
+        8,
+        "Todas as câmeras estavam reguladas e funcionando durante todo o Exame?",
+    ),
+    (
+        9,
+        "Todas as câmeras apresentaram as imagens nítidas e sincronizadas "
+        "entre si durante todo o Exame Prático?",
+    ),
+    (
+        10,
+        "A existência do áudio na gravação do exame ocorreu do início ao fim "
+        "sem interrupções? Há ausência de delay nas gravações?",
+    ),
+    (
+        11,
+        "Há ausência de queixa sobre problema mecânico no veículo?",
+    ),
+    (
+        12,
+        "Há ausência de comportamento estranho por parte dos envolvidos no Exame?",
+    ),
 )
 
 
