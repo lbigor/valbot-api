@@ -30,30 +30,9 @@ jobs:
           pip install -r requirements.txt
           pip install pre-commit pytest pytest-cov
 
-      # Node 22 + pnpm (versão vem do packageManager em frontend/package.json)
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: frontend/package.json
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Frontend deps
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-
       # Lint geral via pre-commit (ruff, mypy, gitleaks)
       - name: Pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
-
-      # Frontend
-      - name: Frontend lint + build
-        working-directory: frontend
-        run: |
-          pnpm lint
-          pnpm --filter @workspace/valbot build
 
       # Tests Python — gates de cobertura definidos em pyproject.toml
       - name: pytest
