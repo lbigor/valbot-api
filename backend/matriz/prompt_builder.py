@@ -67,6 +67,19 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "parada. Só pontue se NENHUMA câmera externa mostrar imobilidade e houver "
         "evidência inequívoca de passagem contínua."
     ),
+    "169": (
+        "Art. 169 é RESIDUAL (dirigir sem atenção ou sem os cuidados "
+        "indispensáveis à segurança): só pontue quando houver DESATENÇÃO genuína (ex.: não "
+        "olhar o painel, não conferir os retrovisores/laterais ao sair ou mudar de "
+        "faixa, dirigir distraído) E não existir enquadramento específico para a "
+        "conduta. NÃO use o 169 como guarda-chuva: NÃO pontue erro de marcha ou "
+        "embreagem isolado (engatar a marcha errada, arranhar o câmbio, dificuldade "
+        "de engatar a ré, trepidar/apagar em aclive), nem qualquer ação executada "
+        "sob INSTRUÇÃO ou CORREÇÃO VERBAL do examinador, nem ajustar/recolocar o "
+        "cinto ou tentar ligar o motor já ligado — são dificuldades mecânicas "
+        "pontuais ou conduzidas, não desatenção. Confiança alta não substitui "
+        "evidência de desatenção: na dúvida, NÃO pontue."
+    ),
 }
 
 # Versão semântica das Diretrizes de avaliação Val. BUMPAR a cada alteração de
@@ -74,7 +87,7 @@ _DIRETRIZES_VAL: dict[str, str] = {
 # reportada por análise é COMPOSTA — `<matriz_versao>+diretrizes-v<X.Y.Z>` — para
 # rastrear qual revisão do prompt julgou cada exame (a Matriz oficial do DB e a
 # camada de interpretação Val evoluem em trilhas independentes).
-DIRETRIZES_VAL_VERSAO = "1.1.0"
+DIRETRIZES_VAL_VERSAO = "1.2.0"
 
 
 def versao_composta(matriz_versao: str) -> str:

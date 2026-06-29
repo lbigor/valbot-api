@@ -6,7 +6,7 @@ a camada de **interpretação Val** sobre a Matriz MBEDV, em
 (detecção v26 e fallback v25) e do Comitê via `construir_bloco`.
 
 A versão reportada e gravada por análise é **composta**:
-`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.1.0`),
+`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.2.0`),
 separando a evolução da Matriz oficial (DB) da camada de interpretação Val (código).
 A versão das diretrizes vive em `prompt_builder.DIRETRIZES_VAL_VERSAO`.
 
@@ -20,6 +20,19 @@ diretriz vigente. Bumpar a constante e adicionar a entrada AQUI no mesmo PR.
 > **1.1.0** Art. 208 · **1.2.0** Art. 169 · **1.3.0** Art. 196 · **1.4.0** Art. 193.
 > Como os PRs são independentes a partir de `main`, o CHANGELOG é aditivo e a
 > ordem de merge reconcilia as entradas.
+
+## [1.2.0] — 2026-06-29 — Art. 169: caráter residual, sem guarda-chuva
+### Corrigido
+- **Art. 169 (dirigir sem atenção, leve)** — 10 falsos positivos no 25/06
+  (examinador aprovou, IA INAPTO, confiança ~0,93). A IA usava o 169 como
+  guarda-chuva para erro de marcha/embreagem isolado, dificuldade pontual em
+  aclive e ações executadas sob instrução verbal do examinador.
+- Adicionada `_DIRETRIZES_VAL["169"]`: reforça o caráter **residual** (só pontua
+  desatenção genuína, sem enquadramento específico) e exclui explicitamente erro
+  mecânico isolado e conduta conduzida pelo examinador.
+### Gate
+- Reprocessar os 10 FPs do 25/06 + amostra de verdadeiros positivos de desatenção
+  real antes de promover (efeito do prompt é probabilístico).
 
 ## [1.1.0] — 2026-06-29 — Art. 208: áudio do motor não prova falta de parada
 ### Corrigido
