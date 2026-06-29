@@ -92,6 +92,16 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "NÃO pontuam: conversão em entroncamento de única direção e saída de lote "
         "lindeiro em via de mão única. Na dúvida, NÃO pontue."
     ),
+    "193": (
+        "Distinga TOCAR a guia de TRANSITAR sobre a calçada. O Art. 193 "
+        "(gravíssima) só se aplica quando a roda transita APOIADA E RODANDO sobre "
+        "a superfície elevada do passeio/calçada (área de pedestres). Encostar, "
+        "raspar ou subir MOMENTANEAMENTE o meio-fio/guia em conversão, baliza ou "
+        "estacionamento NÃO é Art. 193 — é manobra (avalie Art. 181 ou 192). NÃO "
+        "pontue 193 por sinal indireto isolado (solavanco, oscilação do horizonte, "
+        "mudança de perspectiva da câmera, áudio 'subiu na guia'): isso indica "
+        "toque na guia, não trânsito sobre o passeio. Na dúvida, NÃO pontue."
+    ),
 }
 
 # Versão semântica das Diretrizes de avaliação Val. BUMPAR a cada alteração de
@@ -99,7 +109,7 @@ _DIRETRIZES_VAL: dict[str, str] = {
 # reportada por análise é COMPOSTA — `<matriz_versao>+diretrizes-v<X.Y.Z>` — para
 # rastrear qual revisão do prompt julgou cada exame (a Matriz oficial do DB e a
 # camada de interpretação Val evoluem em trilhas independentes).
-DIRETRIZES_VAL_VERSAO = "1.3.0"
+DIRETRIZES_VAL_VERSAO = "1.4.0"
 
 
 def versao_composta(matriz_versao: str) -> str:

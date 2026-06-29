@@ -2,11 +2,13 @@
 
 Versionamento semântico ([SemVer](https://semver.org)) das `_DIRETRIZES_VAL` —
 a camada de **interpretação Val** sobre a Matriz MBEDV, em
-`backend/matriz/prompt_builder.py`. Essas diretrizes entram no prompt do motor
-(detecção v26 e fallback v25) e do Comitê via `construir_bloco`.
+`backend/matriz/prompt_builder.py` — e dos **fragments de câmera** do preset v26
+(`tooling/bench_demo/presets/v26/cat_B/*.md`), que compõem o system prompt do
+motor de detecção. Ambos entram no prompt do motor (detecção v26 e fallback v25)
+e do Comitê.
 
 A versão reportada e gravada por análise é **composta**:
-`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.3.0`),
+`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.4.0`),
 separando a evolução da Matriz oficial (DB) da camada de interpretação Val (código).
 A versão das diretrizes vive em `prompt_builder.DIRETRIZES_VAL_VERSAO`.
 
@@ -20,6 +22,23 @@ diretriz vigente. Bumpar a constante e adicionar a entrada AQUI no mesmo PR.
 > **1.1.0** Art. 208 · **1.2.0** Art. 169 · **1.3.0** Art. 196 · **1.4.0** Art. 193.
 > Como os PRs são independentes a partir de `main`, o CHANGELOG é aditivo e a
 > ordem de merge reconcilia as entradas.
+
+## [1.4.0] — 2026-06-29 — Art. 193: meio-fio/guia ≠ calçada/passeio
+### Corrigido
+- **Art. 193 (transitar sobre calçada, gravíssima)** — 8 falsos positivos no
+  25/06 (examinador aprovou, IA INAPTO). A IA confundia **tocar/subir
+  momentaneamente o meio-fio/guia** em manobra com **transitar sobre
+  calçada/passeio** (6 pts), disparando inclusive por inferência fraca
+  (solavanco, oscilação do horizonte, áudio "subiu na guia").
+- **Fragments v26** (load-bearing — caminho de detecção de prod):
+  `cam_lateral_direita.md` e `cam_frontal.md` reescritos para exigir roda
+  apoiada e rodando sobre a superfície do passeio, excluir toque momentâneo da
+  guia (→ Art. 181/192) e proibir disparo por sinal indireto isolado.
+- **Defesa em profundidade:** `_DIRETRIZES_VAL["193"]` com a mesma distinção
+  (alcança o Comitê e o caminho legado).
+### Gate
+- Reprocessar os 8 FPs do 25/06 + amostra de verdadeiros positivos de trânsito
+  real sobre calçada antes de promover.
 
 ## [1.3.0] — 2026-06-29 — Art. 196: guard de áudio prevalece (anti-contradição)
 ### Corrigido
