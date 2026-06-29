@@ -69,6 +69,18 @@ _DIRETRIZES_VAL: dict[str, str] = {
     ),
 }
 
+# Versão semântica das Diretrizes de avaliação Val. BUMPAR a cada alteração de
+# `_DIRETRIZES_VAL` e registrar a mudança em docs/PROMPT_CHANGELOG.md. A versão
+# reportada por análise é COMPOSTA — `<matriz_versao>+diretrizes-v<X.Y.Z>` — para
+# rastrear qual revisão do prompt julgou cada exame (a Matriz oficial do DB e a
+# camada de interpretação Val evoluem em trilhas independentes).
+DIRETRIZES_VAL_VERSAO = "1.1.0"
+
+
+def versao_composta(matriz_versao: str) -> str:
+    """Versão reportada por análise: une a versão da Matriz à das Diretrizes Val."""
+    return f"{matriz_versao}+diretrizes-v{DIRETRIZES_VAL_VERSAO}"
+
 
 def _diretriz_val(artigo_ctb: str | None) -> str | None:
     """Diretriz operacional do Val Auditor para o artigo (casada por número)."""
@@ -108,7 +120,8 @@ def construir_bloco(
             aplicaveis = [r for r in aplicaveis if _num_ctb(r.get("artigo_ctb")) in nums]
 
     linhas = [
-        f"MATRIZ NACIONAL DE REGRAS — versão {versao} (fonte: MBEDV/CTB).",
+        f"MATRIZ NACIONAL DE REGRAS — versão {versao} (fonte: MBEDV/CTB). "
+        f"Diretrizes de avaliação Val v{DIRETRIZES_VAL_VERSAO}.",
         "Avalie CADA artigo abaixo. Para cada um, decida se a conduta ocorreu, "
         "respeitando as exceções (condutas que NÃO pontuam).",
         "",
@@ -159,4 +172,4 @@ def construir_bloco(
         if dir_val:
             linhas.append(f"Diretriz de avaliação (Val Auditor): {dir_val}")
         linhas.append("")
-    return "\n".join(linhas), versao
+    return "\n".join(linhas), versao_composta(versao)
