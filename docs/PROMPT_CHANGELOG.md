@@ -6,7 +6,7 @@ a camada de **interpretação Val** sobre a Matriz MBEDV, em
 (detecção v26 e fallback v25) e do Comitê via `construir_bloco`.
 
 A versão reportada e gravada por análise é **composta**:
-`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.2.0`),
+`<matriz_versao>+diretrizes-v<X.Y.Z>` (ex.: `matriz-nacional-v1.0+diretrizes-v1.3.0`),
 separando a evolução da Matriz oficial (DB) da camada de interpretação Val (código).
 A versão das diretrizes vive em `prompt_builder.DIRETRIZES_VAL_VERSAO`.
 
@@ -20,6 +20,22 @@ diretriz vigente. Bumpar a constante e adicionar a entrada AQUI no mesmo PR.
 > **1.1.0** Art. 208 · **1.2.0** Art. 169 · **1.3.0** Art. 196 · **1.4.0** Art. 193.
 > Como os PRs são independentes a partir de `main`, o CHANGELOG é aditivo e a
 > ordem de merge reconcilia as entradas.
+
+## [1.3.0] — 2026-06-29 — Art. 196: guard de áudio prevalece (anti-contradição)
+### Corrigido
+- **Art. 196 (não sinalizou seta, grave)** — 19 falsos positivos no 25/06, o
+  campeão (examinador aprovou, IA INAPTO, confiança ~0,97). A IA marcava falta de
+  seta pela **ausência do "tic-tac" do relé** — ausência sonora ≠ falta de
+  sinalização (áudio baixo/ruído do motor).
+- Causa-raiz (validada adversarialmente, veredito *refutado* da tese inicial): o
+  guard "seta só se valida por áudio" **já existe** nos fragments de câmera, mas o
+  bloco da Matriz é anexado por último, autoritativo, **sem repetir o guard** —
+  contradição por recência. `_DIRETRIZES_VAL["196"]` reinsere o guard no bloco
+  autoritativo, declarando que ele **PREVALECE** sobre a lista "Condutas que
+  pontuam", e reafirma as exceções de via da ficha.
+### Gate
+- Reprocessar os 19 FPs do 25/06 + amostra de verdadeiros positivos (em especial
+  os por verbalização do examinador "esqueceu a seta") antes de promover.
 
 ## [1.2.0] — 2026-06-29 — Art. 169: caráter residual, sem guarda-chuva
 ### Corrigido
