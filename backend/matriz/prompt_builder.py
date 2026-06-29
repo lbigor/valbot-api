@@ -52,11 +52,6 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "movimento logo antes e logo depois NÃO prova que não houve parada. Na "
         "dúvida sobre a imobilização total, NÃO pontue (benefício da dúvida ao "
         "candidato). "
-        "O ÁUDIO DO MOTOR É IRRELEVANTE para este artigo: numa parada de 1–2 s o "
-        "motor permanece em marcha lenta, então 'som/rotação contínua do motor' ou "
-        "'ausência da pausa característica de uma parada' NÃO é prova de falta de "
-        "imobilização. NUNCA pontue o Art. 208 com base em áudio — descarte a "
-        "infração cujo único suporte seja sonoro; a prova precisa ser VISUAL. "
         "ESTRATÉGIA DO FRAME CONGELADO: antes de pontuar, PROCURE nas câmeras "
         "EXTERNAS (FRONTAL e LATERAL_DIREITA, visão de fora do veículo) um quadro "
         "em que o veículo esteja CLARAMENTE IMÓVEL após cruzar a placa de parada "
@@ -67,54 +62,7 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "parada. Só pontue se NENHUMA câmera externa mostrar imobilidade e houver "
         "evidência inequívoca de passagem contínua."
     ),
-    "169": (
-        "Art. 169 é RESIDUAL (dirigir sem atenção ou sem os cuidados "
-        "indispensáveis à segurança): só pontue quando houver DESATENÇÃO genuína (ex.: não "
-        "olhar o painel, não conferir os retrovisores/laterais ao sair ou mudar de "
-        "faixa, dirigir distraído) E não existir enquadramento específico para a "
-        "conduta. NÃO use o 169 como guarda-chuva: NÃO pontue erro de marcha ou "
-        "embreagem isolado (engatar a marcha errada, arranhar o câmbio, dificuldade "
-        "de engatar a ré, trepidar/apagar em aclive), nem qualquer ação executada "
-        "sob INSTRUÇÃO ou CORREÇÃO VERBAL do examinador, nem ajustar/recolocar o "
-        "cinto ou tentar ligar o motor já ligado — são dificuldades mecânicas "
-        "pontuais ou conduzidas, não desatenção. Confiança alta não substitui "
-        "evidência de desatenção: na dúvida, NÃO pontue."
-    ),
-    "196": (
-        "GUARD DE ÁUDIO — PREVALECE sobre a lista 'Condutas que pontuam' acima: a "
-        "seta/sinalização SÓ se valida por ÁUDIO (o 'tic-tac' do relé do pisca). A "
-        "AUSÊNCIA do som do relé NÃO prova que o candidato não sinalizou — pode ser "
-        "áudio baixo, ruído do motor ou captação ruim. 'Não vi a alavanca da seta "
-        "ser acionada' ou 'não ouvi o tic-tac' NÃO é evidência suficiente: ausência "
-        "visual/sonora ≠ falta de sinalização. Antes de pontuar, RE-ESCUTE o trecho "
-        "e confirme em pelo menos um canal; se o áudio for inconclusivo, marque como "
-        "pendente/não-detectada, NUNCA como infração. Exceções da ficha que também "
-        "NÃO pontuam: conversão em entroncamento de única direção e saída de lote "
-        "lindeiro em via de mão única. Na dúvida, NÃO pontue."
-    ),
-    "193": (
-        "Distinga TOCAR a guia de TRANSITAR sobre a calçada. O Art. 193 "
-        "(gravíssima) só se aplica quando a roda transita APOIADA E RODANDO sobre "
-        "a superfície elevada do passeio/calçada (área de pedestres). Encostar, "
-        "raspar ou subir MOMENTANEAMENTE o meio-fio/guia em conversão, baliza ou "
-        "estacionamento NÃO é Art. 193 — é manobra (avalie Art. 181 ou 192). NÃO "
-        "pontue 193 por sinal indireto isolado (solavanco, oscilação do horizonte, "
-        "mudança de perspectiva da câmera, áudio 'subiu na guia'): isso indica "
-        "toque na guia, não trânsito sobre o passeio. Na dúvida, NÃO pontue."
-    ),
 }
-
-# Versão semântica das Diretrizes de avaliação Val. BUMPAR a cada alteração de
-# `_DIRETRIZES_VAL` e registrar a mudança em docs/PROMPT_CHANGELOG.md. A versão
-# reportada por análise é COMPOSTA — `<matriz_versao>+diretrizes-v<X.Y.Z>` — para
-# rastrear qual revisão do prompt julgou cada exame (a Matriz oficial do DB e a
-# camada de interpretação Val evoluem em trilhas independentes).
-DIRETRIZES_VAL_VERSAO = "1.4.0"
-
-
-def versao_composta(matriz_versao: str) -> str:
-    """Versão reportada por análise: une a versão da Matriz à das Diretrizes Val."""
-    return f"{matriz_versao}+diretrizes-v{DIRETRIZES_VAL_VERSAO}"
 
 
 def _diretriz_val(artigo_ctb: str | None) -> str | None:
@@ -155,8 +103,7 @@ def construir_bloco(
             aplicaveis = [r for r in aplicaveis if _num_ctb(r.get("artigo_ctb")) in nums]
 
     linhas = [
-        f"MATRIZ NACIONAL DE REGRAS — versão {versao} (fonte: MBEDV/CTB). "
-        f"Diretrizes de avaliação Val v{DIRETRIZES_VAL_VERSAO}.",
+        f"MATRIZ NACIONAL DE REGRAS — versão {versao} (fonte: MBEDV/CTB).",
         "Avalie CADA artigo abaixo. Para cada um, decida se a conduta ocorreu, "
         "respeitando as exceções (condutas que NÃO pontuam).",
         "",
@@ -207,4 +154,4 @@ def construir_bloco(
         if dir_val:
             linhas.append(f"Diretriz de avaliação (Val Auditor): {dir_val}")
         linhas.append("")
-    return "\n".join(linhas), versao_composta(versao)
+    return "\n".join(linhas), versao
