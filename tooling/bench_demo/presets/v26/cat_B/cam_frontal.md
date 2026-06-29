@@ -108,13 +108,15 @@ visível na FRONTAL.
 - Ultrapassagem pela contramão → Art. 203, I-V.
 
 ### Art. 193 — Transitar em calçadas/passeios/ciclovias [Gravíssima, 6 pts]
-**Condutas que pontuam:**
+**Condutas que pontuam (a roda transita APOIADA SOBRE a superfície do passeio):**
 1. Transitar (total ou parcial) sobre calçada ou passeio.
 2. Transitar no avanço do passeio delimitado por sinalização/elemento físico.
 3. Transitar sobre calçada/passeio sinalizado como espaço partilhado.
-4. **Avançar sobre o meio-fio.**
 
 **Condutas que NÃO pontuam:**
+- Encostar/raspar/subir MOMENTANEAMENTE o meio-fio/guia em conversão, baliza ou
+  estacionamento → é manobra, não trânsito sobre calçada. Avalie Art. 181 ou
+  192, NUNCA 193.
 - Retorno passando sobre calçada → use Art. 206, III (ficha específica).
 
 ## NÃO detectar aqui (use outra câmera)
