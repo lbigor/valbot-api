@@ -33,20 +33,15 @@ candidato em pedais, reflexo do pisca lateral direito quando acionado.
 - Pneu dianteiro direito raspando muito próximo ao meio-fio (sem encostar
   ainda — colocando em risco).
 
-### Art. 193 — Transitar sobre CALÇADA/PASSEIO [Gravíssima, 6 pts]
+### Art. 193 — Transitar em calçadas/meio-fio [Gravíssima, 6 pts]
 **Detecção LATERAL_DIREITA específica:**
-- SÓ pontua quando o pneu estiver **apoiado e RODANDO sobre a superfície
-  elevada do passeio/calçada** (a faixa de pedestres), de forma sustentada —
-  o veículo transita POR CIMA da calçada. Exija ver a roda em cima da
-  superfície, não apenas um contato.
-- **NÃO pontua como Art. 193** (são manobra normal, não "transitar sobre
-  calçada"): encostar, raspar ou subir MOMENTANEAMENTE o **meio-fio/guia**
-  em conversão, baliza ou estacionamento. Isso é, no máximo, Art. 181
-  (estacionamento irregular) ou Art. 192 (distância lateral) — NUNCA 193.
-- **PROIBIDO inferir 193** por sinal indireto isolado: solavanco, oscilação
-  do horizonte, mudança de perspectiva da câmera, queda abrupta da distância
-  pneu→meio-fio, ou áudio "bateu no meio-fio"/"subiu na guia". Esses indícios
-  sugerem TOQUE na guia, não trânsito sobre o passeio. Na dúvida, NÃO pontue.
+- Pneu dianteiro direito **toca ou sobe o meio-fio** durante o percurso
+  (não estacionamento — é com o carro em movimento). Visual: distância
+  pneu→meio-fio cai abruptamente pra 0/negativa, oscilação do horizonte
+  na imagem (carro inclinou ao subir).
+- **Confirmar com áudio:** som de impacto surdo, raspagem de borracha,
+  ou EXAMINADOR "bateu no meio-fio", "subiu na guia". Candidato pode
+  reagir "ih..." ou silêncio constrangedor.
 
 ### Art. 196 — Não sinalizou seta (corroboração LATERAL_DIREITA)
 **Vide GUARD completo em `cam_interna.md`.**
