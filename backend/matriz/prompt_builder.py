@@ -80,6 +80,18 @@ _DIRETRIZES_VAL: dict[str, str] = {
         "pontuais ou conduzidas, não desatenção. Confiança alta não substitui "
         "evidência de desatenção: na dúvida, NÃO pontue."
     ),
+    "196": (
+        "GUARD DE ÁUDIO — PREVALECE sobre a lista 'Condutas que pontuam' acima: a "
+        "seta/sinalização SÓ se valida por ÁUDIO (o 'tic-tac' do relé do pisca). A "
+        "AUSÊNCIA do som do relé NÃO prova que o candidato não sinalizou — pode ser "
+        "áudio baixo, ruído do motor ou captação ruim. 'Não vi a alavanca da seta "
+        "ser acionada' ou 'não ouvi o tic-tac' NÃO é evidência suficiente: ausência "
+        "visual/sonora ≠ falta de sinalização. Antes de pontuar, RE-ESCUTE o trecho "
+        "e confirme em pelo menos um canal; se o áudio for inconclusivo, marque como "
+        "pendente/não-detectada, NUNCA como infração. Exceções da ficha que também "
+        "NÃO pontuam: conversão em entroncamento de única direção e saída de lote "
+        "lindeiro em via de mão única. Na dúvida, NÃO pontue."
+    ),
 }
 
 # Versão semântica das Diretrizes de avaliação Val. BUMPAR a cada alteração de
@@ -87,7 +99,7 @@ _DIRETRIZES_VAL: dict[str, str] = {
 # reportada por análise é COMPOSTA — `<matriz_versao>+diretrizes-v<X.Y.Z>` — para
 # rastrear qual revisão do prompt julgou cada exame (a Matriz oficial do DB e a
 # camada de interpretação Val evoluem em trilhas independentes).
-DIRETRIZES_VAL_VERSAO = "1.2.0"
+DIRETRIZES_VAL_VERSAO = "1.3.0"
 
 
 def versao_composta(matriz_versao: str) -> str:
