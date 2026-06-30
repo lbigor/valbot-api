@@ -5,58 +5,47 @@
 <title>Laudo {{ b1_identificacao.codigo_laudo }}</title>
 <style>
   /* ============================================================
-     VAL AUDITOR EXAMES — Laudo Técnico-Regulatório (TEMPLATE FINAL)
-     Síntese: base "verde editorial" (cand_verde) +
-       · selo circular "VA AUDITOR" + faixa de metadados (cand_inst)
-       · carimbos de seção (tag escura mono à direita) + mono ampliado (cand_denso)
-     WeasyPrint 69 · A4 · sem JS / sem web fonts / determinístico byte-a-byte
+     VAL AUDITOR EXAMES — Laudo Técnico-Regulatório
+     Documento jurídico-formal monocromático: preto/branco/cinza,
+     cor (navy) só no timbrado institucional. Numeração tradicional
+     (1., 1.1, 2.), tabelas simples sem cantos arredondados, sem
+     pills/badges/cards coloridos, sem widgets gráficos (barra de
+     confiança, timeline com bolinhas) — convenções de documento
+     impresso, não de produto digital.
+     WeasyPrint 69 · A4 · sem JS / sem web fonts / determinístico
      ============================================================ */
 
   :root{
-    /* Cor PADRÃO — navy institucional (verde só como acento) */
-    --g-900:#13243a; --g-800:#1b3050; --g-700:#1f3a5f; --g-600:#2a5688;
-    --g-500:#3a6fb0; --g-100:#e7eef6; --g-50:#f3f7fb;
-    /* acento verde Val — conector/bolinhas da timeline e detalhes */
-    --accent:#22b36b; --accent-dk:#16894f;
-    /* Neutros (navy/slate de apoio) */
-    --ink:#16221c; --navy:#1f3148; --slate:#54616f; --muted:#8a96a3;
-    --line:#dde5ea; --line-soft:#e9eef2; --paper:#ffffff; --paper-alt:#f7faf8;
-    /* Severidade / semáforo */
-    --red:#b62b1c; --red-bg:#fbecea; --red-bd:#eccac3;
-    --amber:#c47a14; --amber-bg:#fdf3e3; --amber-bd:#eed6ad;
-    --gold:#9a7d0a;
-    --blue:#2563a8; --blue-bg:#eaf2fb;
-    --purple:#7a3a96; --purple-bg:#f3eaf7;
-    --green:#1e8449; --green-bg:#e7f4ec;
-    /* carimbo de seção (tinta institucional escura) */
-    --stamp-bg:#14223a; --stamp-fg:#c2d6ef;
+    --inst:#1f3a5f;          /* única cor permitida — timbrado institucional */
+    --ink:#0c0c0c; --gray:#444; --muted:#666; --line:#000; --line-soft:#999;
+    --fill-soft:#f2f2f2;     /* cinza claro — não é matiz, é tom de cinza */
   }
 
   @page {
     size: A4;
-    margin: 22mm 14mm 16mm 14mm;
+    margin: 24mm 16mm 16mm 16mm;
     @top-left {
       content: "VAL AUDITOR EXAMES";
-      font-family: Georgia, "Times New Roman", serif; font-size: 7pt;
-      font-weight: 700; letter-spacing: .6px; color: #1f3a5f;
+      font-family: Georgia, "Times New Roman", serif; font-size: 7.4pt;
+      font-weight: 700; letter-spacing: .8px; color: var(--inst);
       padding-bottom: 2mm;
     }
     @top-right {
       content: "LAUDO TÉCNICO-REGULATÓRIO · CONFIDENCIAL";
-      font-family: Arial, sans-serif; font-size: 6.4pt; letter-spacing: .8px;
-      color: #8a96a3; padding-bottom: 2mm;
+      font-family: Georgia, serif; font-size: 6.6pt; letter-spacing: .6px;
+      color: var(--muted); padding-bottom: 2mm;
     }
     @bottom-left {
       content: "{{ b1_identificacao.codigo_laudo }}  ·  {{ cabecalho.estrutura }}  ·  Matriz {{ cabecalho.matriz_label }}";
-      font-family: "Courier New", monospace; font-size: 6.4pt; color: #8a96a3;
+      font-family: "Courier New", monospace; font-size: 6.4pt; color: var(--muted);
     }
     @bottom-right {
-      content: "Página " counter(page) " / " counter(pages);
-      font-family: Arial, sans-serif; font-size: 6.6pt; color: #8a96a3;
+      content: "Página " counter(page) " de " counter(pages);
+      font-family: Georgia, serif; font-size: 6.8pt; color: var(--muted);
     }
   }
   @page:first {
-    margin-top: 14mm;
+    margin-top: 18mm;
     @top-left { content: none; }
     @top-right { content: none; }
   }
@@ -64,514 +53,271 @@
   * { box-sizing: border-box; }
   html,body { margin:0; padding:0; }
   body {
-    font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-    font-size: 9.3pt; color: var(--ink); line-height: 1.5;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 9.4pt; color: var(--ink); line-height: 1.5;
     -weasy-hyphens: none;
   }
   h1,h2,h3,h4,p { margin:0; }
+  .mono{ font-family:"Courier New",monospace; font-size:8pt; word-break:break-all; }
 
-  /* ---------- CABEÇALHO / CAPA (com selo circular VA AUDITOR) ---------- */
-  .cover{
-    background: linear-gradient(135deg, var(--g-800) 0%, var(--g-700) 55%, var(--g-600) 100%);
-    color:#fff; border-radius:10px; padding:18px 22px 16px 22px;
-    position:relative; overflow:hidden;
-    display:flex; justify-content:space-between; align-items:stretch;
+  /* ---------- TIMBRADO (única peça com cor) ---------- */
+  .letterhead{
+    border-bottom: 3px double var(--inst);
+    padding-bottom: 8px; margin-bottom: 10px;
+    display:flex; justify-content:space-between; align-items:flex-end;
   }
-  .cover::after{ /* faixa decorativa lateral */
-    content:""; position:absolute; top:0; right:0; bottom:0; width:6px;
-    background: var(--g-500);
+  .letterhead .inst{
+    font-size:16.5pt; font-weight:700; letter-spacing:.4px; color:var(--inst);
+    text-transform:uppercase; line-height:1.05;
   }
-  .cover .head-left{ flex:1; padding-right:16px; }
-  .cover .eyebrow{
-    font-size:6.8pt; letter-spacing:2.4px; text-transform:uppercase;
-    color:#c2d6ef; font-weight:700; margin-bottom:5px;
-  }
-  .cover .brand{
-    font-family: Georgia,"Times New Roman",serif; font-size:23pt; font-weight:700;
-    letter-spacing:.4px; line-height:1.05;
-  }
-  .cover .sub{ font-size:8.6pt; color:#dce8f6; margin-top:6px; max-width:96%; line-height:1.4; }
-  .cover .ref{ font-size:7.4pt; color:#c2d6ef; margin-top:9px; letter-spacing:.2px; }
-  /* coluna direita: selo circular + confidencial + estrutura */
-  .cover .head-right{
-    flex:0 0 122px; text-align:center; padding-left:16px; margin-right:6px;
-    border-left:1px solid rgba(255,255,255,.16);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-  }
-  .seal{
-    width:62px; height:62px; border-radius:50%;
-    border:2px solid #c2d6ef; box-shadow: inset 0 0 0 3px rgba(255,255,255,.08);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    margin-bottom:8px;
-  }
-  .seal .sg{ font-family:Georgia,serif; font-size:15pt; font-weight:700; color:#fff; line-height:1; }
-  .seal .ss{ font-size:5pt; letter-spacing:1.8px; color:#c2d6ef; margin-top:2px; text-transform:uppercase; }
-  .cover .pill{
-    display:inline-block; border:1.2px solid #c2d6ef; color:#fff;
-    font-size:6.4pt; font-weight:700; letter-spacing:1.6px; text-transform:uppercase;
-    padding:3px 9px; border-radius:20px; background:rgba(255,255,255,.08);
-  }
-  .cover .struct{ font-size:6.6pt; color:#c2d6ef; margin-top:7px; letter-spacing:.4px; }
+  .letterhead .sub{ font-size:9pt; color:var(--ink); margin-top:4px; }
+  .letterhead .right{ text-align:right; font-size:7.8pt; color:var(--gray); flex:0 0 200px; }
+  .letterhead .right .conf{ font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--ink); }
 
-  /* faixa de metadados do documento (código/versão/emitido/processamento) */
-  .docmeta{
-    display:flex; margin:10px 0 2px 0; border:1px solid var(--line);
-    border-radius:8px; overflow:hidden; background:var(--paper);
-  }
-  .docmeta .cell{ flex:1; padding:7px 12px; border-right:1px solid var(--line-soft); }
-  .docmeta .cell:last-child{ border-right:none; }
-  .docmeta .k{ font-size:6.4pt; letter-spacing:1px; text-transform:uppercase; color:var(--muted); font-weight:700; }
-  .docmeta .v{ font-size:8.6pt; color:var(--navy); font-weight:700; margin-top:2px; }
-  .docmeta .v.mono{ font-family:"Courier New",monospace; font-size:7.8pt; font-weight:700; word-break:normal; overflow-wrap:break-word; }
+  /* ---------- FAIXA DE METADADOS DO DOCUMENTO (preto e branco) ---------- */
+  table.meta{ width:100%; border-collapse:collapse; font-size:8.4pt; margin:0 0 12px 0; }
+  table.meta td{ border:1px solid var(--line); padding:5px 9px; vertical-align:top; }
+  table.meta .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.6px; color:var(--gray); display:block; }
+  table.meta .v{ font-weight:700; margin-top:1px; }
 
-  /* ---------- TÍTULOS DE BLOCO (com carimbo de seção à direita) ---------- */
-  .block{ margin-top:18px; }
-  .block-head{ display:flex; align-items:center; margin-bottom:9px; }
-  .block-head .num{
-    flex:0 0 auto; width:21px; height:21px; border-radius:6px;
-    background:var(--g-700); color:#fff; font-size:9.5pt; font-weight:700;
-    text-align:center; line-height:21px; margin-right:10px;
-    font-family: Georgia, serif;
+  /* ---------- TÍTULOS DE SEÇÃO NUMERADOS (sem badge/carimbo) ---------- */
+  .sec{ margin-top:17px; }
+  .sec-h{
+    font-size:12.5pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
+    border-bottom:1.4px solid var(--line); padding-bottom:4px; margin-bottom:9px;
   }
-  .block-head .ttl{
-    font-family: Georgia,"Times New Roman",serif; font-size:13.5pt; font-weight:700;
-    color:var(--g-800); letter-spacing:.2px; line-height:1.1;
+  .sub-h{
+    font-size:9.6pt; font-weight:700; margin:12px 0 5px 0; text-decoration:underline;
+    text-underline-offset:2px;
   }
-  /* CARIMBO de seção — tag escura monospace alinhada à direita (cand_denso) */
-  .block-head .stamp{
-    margin-left:auto; align-self:center;
-    background:var(--stamp-bg); color:var(--stamp-fg);
-    font-family:"Courier New",monospace; font-size:6.3pt; font-weight:700;
-    letter-spacing:.8px; text-transform:uppercase;
-    padding:3px 9px; border-radius:4px; border-left:3px solid var(--g-500);
-    white-space:nowrap;
-  }
-  .rule{ height:2px; background:linear-gradient(90deg,var(--g-600),var(--g-100)); border:none; margin:0 0 11px 0; }
+  .lead{ color:var(--gray); font-size:8.5pt; margin:0 0 8px 0; line-height:1.5; font-style:italic; }
 
-  h3.mini{
-    font-size:8.2pt; font-weight:700; color:var(--g-700); letter-spacing:1px;
-    text-transform:uppercase; margin:13px 0 5px 0;
-    border-left:3px solid var(--g-500); padding-left:7px;
-  }
-  .lead{ color:var(--slate); font-size:8.4pt; margin:0 0 9px 0; line-height:1.45; }
-
-  /* duas colunas lado a lado (densidade à la cand_denso) */
-  .cols{ display:flex; gap:11px; }
+  /* duas colunas lado a lado */
+  .cols{ display:flex; gap:14px; }
   .cols > div{ flex:1; min-width:0; }
 
-  /* ---------- TABELA CHAVE / VALOR ---------- */
-  table.kv{ width:100%; border-collapse:collapse; font-size:8.7pt;
-    border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  /* ---------- TABELA DOCUMENTAL — base única (chave/valor e grid) ---------- */
+  table.kv{ width:100%; border-collapse:collapse; font-size:8.8pt; margin:0 0 4px 0; }
   table.kv th{
-    background:var(--g-50); color:var(--g-800); text-align:left; font-weight:700;
-    width:34%; padding:6px 11px; border-bottom:1px solid var(--line-soft);
-    border-right:1px solid var(--line-soft); vertical-align:top; font-size:8.3pt;
+    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
+    font-weight:700; width:32%; padding:6px 10px; vertical-align:top; font-size:8.5pt;
   }
-  table.kv td{ padding:6px 11px; border-bottom:1px solid var(--line-soft);
-    vertical-align:top; color:var(--ink); }
-  table.kv tr:last-child th, table.kv tr:last-child td{ border-bottom:none; }
-  .mono{ font-family:"Courier New",monospace; font-size:8pt; color:var(--navy); word-break:break-all; }
+  table.kv td{ border:1px solid var(--line); padding:6px 10px; vertical-align:top; }
 
-  /* ---------- GRID DE DADOS ---------- */
-  table.grid{ width:100%; border-collapse:collapse; font-size:8.3pt; margin:6px 0;
-    border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  table.grid thead th{
-    background:var(--g-700); color:#fff; text-align:left; padding:7px 10px;
-    font-size:7.6pt; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
+  table.grid{ width:100%; border-collapse:collapse; font-size:8.4pt; margin:4px 0 10px 0; }
+  table.grid th{
+    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
+    padding:6px 9px; font-size:7.8pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
   }
-  table.grid tbody td{ padding:6px 10px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
-  table.grid tbody tr:nth-child(even){ background:var(--paper-alt); }
-  table.grid tbody tr:last-child td{ border-bottom:none; }
-  td.t-mono{ font-family:"Courier New",monospace; font-size:7.8pt; white-space:nowrap; color:var(--navy); font-weight:700; }
-  /* linhas não se partem entre páginas (quebra limpa) */
-  table.grid tbody tr, table.kv tr, table.ck tbody tr, table.gloss tr { page-break-inside:avoid; }
+  table.grid td{ border:1px solid var(--line); padding:5px 9px; vertical-align:top; }
+  table.grid tr, table.kv tr { page-break-inside:avoid; }
+  td.t-mono, .mono-cell{ font-family:"Courier New",monospace; font-size:7.8pt; white-space:nowrap; }
 
-  /* ---------- BANNER DE SEMÁFORO ---------- */
-  .banner{ border-radius:8px; padding:11px 15px; margin:4px 0 10px 0;
-    color:#fff; position:relative; page-break-inside:avoid;
-    border-left:7px solid rgba(0,0,0,.18); }
-  .banner .b-tag{ font-size:6.6pt; letter-spacing:1.8px; text-transform:uppercase;
-    font-weight:700; opacity:.9; }
-  .banner .b-title{ font-size:11.5pt; font-weight:800; letter-spacing:.3px; margin-top:2px; }
-  .banner .b-flow{ font-size:8pt; margin-top:4px; opacity:.95; }
-  .banner.vermelho,.banner.infracao{ background:var(--red); }
-  .banner.laranja{ background:var(--amber); }
-  .banner.roxo{ background:var(--purple); }
-  .banner.verde{ background:var(--green); }
-  .banner.cinza{ background:var(--slate); }
+  /* ---------- 1.1 CADEIA DE DECISÃO (tabela, não timeline gráfica) ---------- */
+  table.cadeia{ width:100%; border-collapse:collapse; font-size:8.6pt; margin:6px 0 4px 0; }
+  table.cadeia th{
+    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
+    padding:6px 9px; font-size:7.8pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
+  }
+  table.cadeia td{ border:1px solid var(--line); padding:6px 9px; vertical-align:top; }
+  table.cadeia td.n{ text-align:center; font-weight:700; width:24px; }
+  table.cadeia td.res{ font-weight:700; white-space:nowrap; }
+  table.cadeia td.dt{ font-family:"Courier New",monospace; font-size:7.8pt; white-space:nowrap; }
+  .footnote{ font-size:7.6pt; color:var(--gray); margin:3px 0 10px 0; font-style:italic; }
 
-  /* ---------- CARTÕES DE RESULTADO (oficial vs calculado) ---------- */
-  .results{ display:flex; gap:11px; margin:10px 0; }
-  .rcard{ flex:1; border:1px solid var(--line); border-radius:9px; overflow:hidden;
-    background:var(--paper); page-break-inside:avoid; }
-  .rcard .rc-h{ font-size:6.8pt; letter-spacing:1.2px; text-transform:uppercase;
-    font-weight:700; color:#fff; padding:5px 12px; }
-  .rcard.of .rc-h{ background:var(--navy); }
-  .rcard.va .rc-h{ background:var(--g-700); }
-  .rcard .rc-b{ padding:11px 13px 12px 13px; }
-  .rcard .verdict{ font-size:19pt; font-weight:800; letter-spacing:.5px; line-height:1; }
-  .rcard.repr .verdict{ color:var(--red); }
-  .rcard.apr .verdict{ color:var(--green); }
-  .rcard .score{ font-size:8pt; color:var(--slate); margin-top:7px; }
-  .rcard .score b{ color:var(--ink); }
-  .rcard .score .mono{ font-size:8pt; }
+  /* ---------- AVISO / VEREDITO (sem cor de semáforo) ---------- */
+  .aviso{ border:1.4px solid var(--line); padding:9px 13px; margin:6px 0 10px 0; }
+  .aviso .tag{ font-size:7.2pt; text-transform:uppercase; letter-spacing:1.4px; font-weight:700; color:var(--gray); }
+  .aviso .ttl{ font-size:11pt; font-weight:800; margin-top:3px; letter-spacing:.2px; }
+  .aviso .flow{ font-size:8.4pt; margin-top:4px; color:var(--gray); }
 
-  /* ---------- INDICADORES ---------- */
-  .inds{ display:flex; gap:7px; margin:7px 0; }
-  .ind{ flex:1; border:1px solid var(--line); border-radius:8px; padding:9px 6px 8px 6px;
-    text-align:center; background:var(--paper); }
-  .ind .v{ font-size:10.5pt; font-weight:800; color:var(--g-800); line-height:1.05; }
-  .ind .k{ font-size:6.4pt; color:var(--muted); margin-top:4px; letter-spacing:.5px;
-    text-transform:uppercase; font-weight:700; }
-  .ind.alerta{ background:var(--amber-bg); border-color:var(--amber-bd); }
-  .ind.alerta .v{ color:var(--amber); }
+  /* ---------- RESULTADOS LADO A LADO (oficial × calculado) ---------- */
+  .veredito-cols{ display:flex; border:1.4px solid var(--line); margin:9px 0; page-break-inside:avoid; }
+  .veredito-cols > div{ flex:1; padding:11px 14px; }
+  .veredito-cols > div:first-child{ border-right:1.4px solid var(--line); }
+  .veredito-cols .lbl{ font-size:7.4pt; text-transform:uppercase; letter-spacing:.8px; font-weight:700; color:var(--gray); }
+  .veredito-cols .val{ font-size:17pt; font-weight:800; margin-top:5px; letter-spacing:.4px; }
+  .veredito-cols .sub{ font-size:8pt; color:var(--gray); margin-top:6px; }
 
-  /* ---------- CALLOUTS ---------- */
-  .callout{ padding:10px 13px; border-radius:8px; font-size:8.5pt; margin:8px 0;
-    page-break-inside:avoid; line-height:1.45; }
-  .callout .t{ font-weight:700; display:block; margin-bottom:3px; font-size:8.2pt;
-    letter-spacing:.3px; }
-  .callout.verde{ background:var(--g-50); border:1px solid var(--g-100); border-left:4px solid var(--g-600); }
-  .callout.verde .t{ color:var(--g-800); }
-  .callout.azul{ background:var(--blue-bg); border:1px solid #cfe0f3; border-left:4px solid var(--blue); }
-  .callout.azul .t{ color:var(--blue); }
-  .callout.laranja{ background:var(--amber-bg); border:1px solid var(--amber-bd); border-left:4px solid var(--amber); }
-  .callout.laranja .t{ color:var(--amber); }
-  .callout.cinza{ background:var(--paper-alt); border:1px solid var(--line); border-left:4px solid var(--muted); }
-  .callout.cinza .t{ color:var(--navy); }
-  .callout.roxo{ background:var(--purple-bg); border:1px solid #e3d2ec; border-left:4px solid var(--purple); }
-  .callout.roxo .t{ color:var(--purple); }
+  /* ---------- INDICADORES (linha de tabela, não cards) ---------- */
+  table.inds{ width:100%; border-collapse:collapse; font-size:8.3pt; margin:7px 0 11px 0; }
+  table.inds td{ border:1px solid var(--line); padding:7px 5px; text-align:center; }
+  table.inds .v{ font-weight:800; font-size:10pt; display:block; }
+  table.inds .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.4px; color:var(--gray); margin-top:3px; display:block; }
 
-  /* bloco de integridade criptográfica (hashes lado a lado, mono) */
-  .integ{ display:flex; gap:18px; margin-top:4px; }
+  /* ---------- NOTAS / CALLOUTS (caixa simples, rótulo em maiúsculas) ---------- */
+  .nota-box{ border:1px solid var(--line); padding:9px 13px; margin:8px 0; font-size:8.6pt;
+    line-height:1.5; text-align:justify; page-break-inside:avoid; }
+  .nota-box .lbl{ font-weight:700; display:block; margin-bottom:4px; text-transform:uppercase;
+    font-size:7.6pt; letter-spacing:.5px; }
+
+  /* recomendação de encaminhamento */
+  .reco{ border:1.2px solid var(--line); padding:10px 14px; margin:8px 0; page-break-inside:avoid; }
+  .reco .t{ font-weight:800; font-size:9pt; text-transform:uppercase; letter-spacing:.3px; }
+  .reco .meta{ font-size:8.3pt; color:var(--gray); margin-top:5px; }
+  .reco .meta b{ color:var(--ink); }
+
+  /* integridade criptográfica */
+  .integ{ display:flex; gap:18px; margin-top:5px; }
   .integ > div{ flex:1; min-width:0; }
-  .integ .ik{ font-size:6.5pt; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
-  .integ .iv{ font-family:"Courier New",monospace; font-size:7.3pt; color:var(--navy); word-break:break-all; display:block; margin-top:2px; }
+  .integ .ik{ font-size:6.6pt; color:var(--gray); text-transform:uppercase; letter-spacing:.4px; }
+  .integ .iv{ font-family:"Courier New",monospace; font-size:7.4pt; word-break:break-all; display:block; margin-top:2px; }
 
-  /* recomendação destacada */
-  .reco{ display:flex; gap:11px; margin:9px 0; border:1px solid var(--g-100);
-    border-radius:9px; overflow:hidden; page-break-inside:avoid; }
-  .reco .side{ flex:0 0 7px; background:var(--g-600); }
-  .reco .body{ padding:11px 14px; background:var(--g-50); flex:1; }
-  .reco .body .t{ font-weight:800; color:var(--g-800); font-size:9pt; }
-  .reco .body .meta{ font-size:8.2pt; color:var(--slate); margin-top:4px; }
-  .reco .body .meta b{ color:var(--navy); }
-  .tag{ display:inline-block; font-size:6.6pt; font-weight:700; letter-spacing:.6px;
-    text-transform:uppercase; padding:2px 7px; border-radius:11px; }
-  .tag.prio-alta{ background:var(--red-bg); color:var(--red); border:1px solid var(--red-bd); }
-  .tag.prio-media{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd); }
-  .tag.prio-baixa{ background:var(--g-100); color:var(--g-800); }
+  /* ---------- INFRAÇÕES (subseção numerada + tabela, sem cartão colorido) ---------- */
+  .infra{ margin:11px 0; page-break-inside:avoid; }
+  .infra .ih{
+    border:1px solid var(--line); border-bottom:none; padding:6px 11px;
+    font-weight:700; font-size:9.6pt; display:flex; justify-content:space-between;
+    background:var(--fill-soft);
+  }
+  .infra table.kv{ margin:0; }
+  .infra table.kv th, .infra table.kv td{ border-top:none; }
 
-  /* ---------- CARTÕES DE INFRAÇÃO ---------- */
-  .inf{ border:1px solid var(--line); border-radius:9px; margin:11px 0; overflow:hidden;
-    page-break-inside:avoid; }
-  .inf .head{ color:#fff; padding:8px 13px; display:flex; align-items:center; gap:9px; }
-  .inf .head .id{ font-family:"Courier New",monospace; font-size:10pt; font-weight:700; letter-spacing:.5px; }
-  .inf .head .art{ font-size:8.6pt; font-weight:700; opacity:.95; }
-  .inf .head .sev{ font-size:6.6pt; letter-spacing:1.2px; text-transform:uppercase;
-    border:1px solid rgba(255,255,255,.6); border-radius:11px; padding:2px 8px; font-weight:700; }
-  .inf .head .pts{ margin-left:auto; font-size:8pt; font-weight:700; font-family:"Courier New",monospace;
-    background:rgba(255,255,255,.18); border-radius:6px; padding:3px 9px; }
-  .inf .head.gravissima{ background:var(--red); }
-  .inf .head.grave{ background:#b85a1f; }
-  .inf .head.media{ background:var(--gold); }
-  .inf .head.leve{ background:var(--green); }
-  .inf table.kv{ border:none; border-radius:0; }
-  .inf table.kv th{ background:var(--paper-alt); width:27%; }
-  .inf .conf-wrap{ display:flex; align-items:center; gap:8px; }
-  .inf .conf-bar{ flex:1; height:7px; background:var(--line-soft); border-radius:4px; overflow:hidden; max-width:120px; }
-  .inf .conf-bar i{ display:block; height:100%; background:var(--g-600); border-radius:4px; }
-  .inf .conf-num{ font-weight:700; color:var(--navy); font-size:8.4pt; font-family:"Courier New",monospace; }
-  .reco-pill{ display:inline-block; font-weight:700; font-size:8pt; letter-spacing:.4px;
-    padding:2px 9px; border-radius:11px; background:var(--amber-bg); color:var(--amber);
-    border:1px solid var(--amber-bd); }
+  /* ---------- ANEXO K — CHECKLIST (tabela simples, status em texto) ---------- */
+  table.ck{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:7px 0 4px 0; }
+  table.ck th{ border:1px solid var(--line); background:var(--fill-soft); text-align:left;
+    padding:6px 9px; font-size:7.6pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+  table.ck td{ border:1px solid var(--line); padding:6px 9px; vertical-align:top; }
+  table.ck td.n{ text-align:center; font-weight:700; width:26px; font-family:"Courier New",monospace; }
+  table.ck td.vd{ width:130px; font-weight:700; white-space:nowrap; }
+  .crit-flag{ font-style:italic; font-weight:700; font-size:7.8pt; }
+  .ev{ color:var(--gray); font-size:7.8pt; font-style:italic; }
 
-  /* ---------- LINHA DO TEMPO ---------- */
-  .tl-wrap{ border:1px solid var(--line); border-radius:9px; padding:13px 15px 11px 15px;
-    background:var(--paper); margin:6px 0 10px 0; page-break-inside:avoid; }
-  .tl-bar{ height:18px; background:var(--g-50); border:1px solid var(--line);
-    border-radius:5px; position:relative; margin:6px 0 5px 0; }
-  .tl-bar .gl{ position:absolute; top:0; bottom:0; width:1px; background:var(--line); }
-  .tl-bar .tick{ position:absolute; top:-3px; bottom:-3px; width:3px; border-radius:2px;
-    margin-left:-1.5px; }
-  .tl-bar .tick.infracao{ background:var(--red); }
-  .tl-bar .tick.tpa{ background:var(--amber); }
-  .tl-bar .tick.audio_inadequado{ background:var(--purple); }
-  .tl-bar .tick.neutro{ background:var(--muted); }
-  .tl-bar .tick.sistema{ background:var(--g-600); }
-  .tl-scale{ display:flex; justify-content:space-between; font-size:6.8pt; color:var(--muted);
-    font-family:"Courier New",monospace; }
-  .tl-legend{ display:flex; flex-wrap:wrap; gap:13px; margin-top:8px; font-size:6.8pt; color:var(--slate); }
-  .tl-legend span{ display:inline-flex; align-items:center; }
-  .tl-legend i{ width:8px; height:8px; border-radius:2px; display:inline-block; margin-right:4px; }
-  .li.infracao{ background:var(--red); } .li.tpa{ background:var(--amber); }
-  .li.audio_inadequado{ background:var(--purple); } .li.neutro{ background:var(--muted); }
-  .li.sistema{ background:var(--g-600); }
-  .dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:middle; }
-  .dot.infracao{ background:var(--red); } .dot.tpa{ background:var(--amber); }
-  .dot.audio_inadequado{ background:var(--purple); } .dot.neutro{ background:var(--muted); }
-  .dot.sistema{ background:var(--g-600); }
+  table.resumo-ck{ width:auto; border-collapse:collapse; font-size:8.3pt; margin:0 0 9px 0; }
+  table.resumo-ck td{ border:1px solid var(--line); padding:5px 11px; text-align:center; }
+  table.resumo-ck .v{ font-weight:800; display:block; font-size:9.6pt; }
+  table.resumo-ck .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.3px; color:var(--gray); display:block; margin-top:2px; }
 
-  /* ---------- CHECKLIST ANEXO K ---------- */
-  .ck-top{ display:flex; gap:11px; align-items:stretch; margin:6px 0 11px 0; page-break-inside:avoid; }
-  .ck-score{ flex:0 0 150px; border:1px solid var(--g-100); border-radius:9px;
-    background:var(--g-50); padding:11px 13px; text-align:center; }
-  .ck-score .big{ font-family:Georgia,serif; font-size:21pt; font-weight:700; color:var(--g-800); line-height:1; }
-  .ck-score .big small{ font-size:11pt; color:var(--g-600); }
-  .ck-score .lbl{ font-size:6.6pt; letter-spacing:.8px; text-transform:uppercase; color:var(--slate); font-weight:700; margin-top:5px; }
-  .ck-meter{ height:7px; background:var(--line-soft); border-radius:4px; overflow:hidden; margin-top:8px; }
-  .ck-meter i{ display:block; height:100%; background:var(--g-600); }
-  .ck-note{ flex:1; border:1px solid var(--line); border-radius:9px; padding:11px 14px;
-    background:var(--paper); font-size:8.3pt; color:var(--slate); line-height:1.45; }
-  .ck-note .t{ font-weight:700; color:var(--g-800); font-size:8.4pt; display:block; margin-bottom:4px; }
-  .ck-stats{ display:flex; gap:7px; margin:0 0 9px 0; }
-  .ck-stats .s{ flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 5px; text-align:center; background:var(--paper); }
-  .ck-stats .s .v{ font-size:12pt; font-weight:800; line-height:1; }
-  .ck-stats .s .k{ font-size:6.2pt; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; margin-top:3px; }
-  .ck-stats .s.ok{ border-top:3px solid var(--green); } .ck-stats .s.ok .v{ color:var(--green); }
-  .ck-stats .s.no{ border-top:3px solid var(--red); } .ck-stats .s.no .v{ color:var(--red); }
-  .ck-stats .s.hu{ border-top:3px solid var(--amber); } .ck-stats .s.hu .v{ color:var(--amber); }
-  .ck-stats .s.tt{ border-top:3px solid var(--g-700); } .ck-stats .s.tt .v{ color:var(--g-800); }
-  .badge{ display:inline-block; font-size:6.6pt; font-weight:700; letter-spacing:.5px;
-    text-transform:uppercase; padding:2px 7px; border-radius:11px; white-space:nowrap; }
-  .badge.ok{ background:var(--green-bg); color:var(--green); border:1px solid #bfe0cb; }
-  .badge.bad{ background:var(--red-bg); color:var(--red); border:1px solid var(--red-bd); }
-  .badge.warn{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd); }
-  .badge.neutro{ background:var(--paper-alt); color:var(--slate); border:1px solid var(--line); }
-  .crit{ display:inline-block; font-size:6.4pt; font-weight:700; color:var(--red);
-    border:1px solid var(--red-bd); background:var(--red-bg); border-radius:4px; padding:1px 5px; margin-left:5px; }
-  table.ck{ width:100%; border-collapse:collapse; font-size:8.4pt;
-    border:1px solid var(--line); border-radius:9px; overflow:hidden; }
-  table.ck thead th{ background:var(--g-700); color:#fff; text-align:left; padding:7px 10px;
-    font-size:7.4pt; letter-spacing:.4px; text-transform:uppercase; font-weight:700; }
-  table.ck td{ padding:6px 10px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
-  table.ck tbody tr:nth-child(even){ background:var(--paper-alt); }
-  table.ck tbody tr:last-child td{ border-bottom:none; }
-  table.ck td.n{ font-family:"Courier New",monospace; font-weight:700; color:var(--g-700);
-    text-align:center; width:26px; }
-  table.ck td.vd{ width:118px; text-align:center; white-space:nowrap; }
-  .ev{ color:var(--slate); font-size:7.6pt; font-style:italic; }
-
-  /* ---------- GLOSSÁRIO E NOTAS TÉCNICAS ---------- */
-  table.gloss{ width:100%; border-collapse:collapse; font-size:8.3pt;
-    border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  table.gloss th{ background:var(--g-50); color:var(--g-800); text-align:left; vertical-align:top;
-    width:27%; padding:6px 11px; border-bottom:1px solid var(--line-soft);
-    border-right:1px solid var(--line-soft); font-weight:700; font-size:8.3pt; }
-  table.gloss td{ padding:6px 11px; border-bottom:1px solid var(--line-soft);
-    vertical-align:top; color:var(--ink); line-height:1.45; }
-  table.gloss tr:last-child th, table.gloss tr:last-child td{ border-bottom:none; }
+  /* ---------- GLOSSÁRIO ---------- */
+  table.gloss{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:5px 0 4px 0; }
+  table.gloss th{ border:1px solid var(--line); background:var(--fill-soft); text-align:left; vertical-align:top;
+    width:26%; padding:6px 10px; font-weight:700; font-size:8.3pt; }
+  table.gloss td{ border:1px solid var(--line); padding:6px 10px; vertical-align:top; line-height:1.5; }
   table.gloss .gm{ font-family:"Courier New",monospace; font-size:7.8pt; }
-  .gloss-cap{ font-size:7.6pt; color:var(--g-700); font-weight:700; letter-spacing:1px;
-    text-transform:uppercase; margin:13px 0 5px 0; border-left:3px solid var(--g-500); padding-left:7px; }
+  .gloss-cap{ font-size:7.8pt; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+    margin:14px 0 5px 0; border-bottom:1px solid var(--line-soft); padding-bottom:3px; }
+  .ck-ref-list{ display:flex; flex-wrap:wrap; gap:4px 18px; margin:4px 0 8px 0; }
+  .ck-ref-item{ flex:0 0 47%; font-size:8.1pt; line-height:1.4; page-break-inside:avoid; }
+  .ck-ref-item .n{ font-weight:700; margin-right:5px; }
 
-  .nota{ font-size:7.4pt; color:var(--muted); line-height:1.45; margin-top:8px;
-    border-top:1px solid var(--line-soft); padding-top:7px; }
-  .pb{ page-break-before: always; }
-  .keep{ page-break-inside: avoid; }
-
-  /* ---------- RESUMO: cadeia de avaliação (timeline da 1ª página) ---------- */
-  .summary-head{ margin:13px 0 4px 0; display:flex; align-items:baseline; gap:10px; }
-  .summary-head .t{ font-family:Georgia,"Times New Roman",serif; font-size:14pt; font-weight:700; color:var(--g-800); }
-  .summary-head .s{ font-size:7.4pt; color:var(--slate); }
-  .sum-outcome{ border:1px solid var(--line); border-left:5px solid var(--amber); border-radius:8px;
-    background:var(--g-50); padding:7px 13px; margin:5px 0 12px 0; font-size:8.6pt; color:var(--navy); line-height:1.4; }
-  .sum-outcome b{ color:var(--g-800); }
-  .evchain{ position:relative; margin:2px 0 4px 0; padding-left:28px; }
-  .evchain::before{ content:""; position:absolute; left:8px; top:8px; bottom:8px; width:3px;
-    background:var(--accent); border-radius:2px; }
-  .evnode{ position:relative; margin:0 0 8px 0; page-break-inside:avoid; }
-  .evnode::before{ content:""; position:absolute; left:-24px; top:9px; width:12px; height:12px;
-    background:var(--accent); border:2.5px solid var(--paper); border-radius:50%;
-    box-shadow:0 0 0 1.5px var(--accent-dk); }
-  .evcard{ border:1px solid var(--line); border-radius:9px; background:var(--paper); padding:8px 12px; }
-  .evcard .top{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
-  .evcard .role{ font-weight:700; color:var(--g-800); font-size:9.2pt; }
-  .evcard .who{ font-size:7.9pt; color:var(--slate); margin-top:1px; }
-  .evcard .meta{ margin-top:5px; display:flex; gap:16px; flex-wrap:wrap; font-size:8pt; color:var(--navy); }
-  .evcard .meta .k{ font-size:6.2pt; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700; }
-  .evcard .meta .dt{ font-family:"Courier New",monospace; color:var(--navy); font-weight:700; }
-  .res-badge{ display:inline-block; font-size:7.4pt; font-weight:800; letter-spacing:.3px;
-    padding:3px 9px; border-radius:5px; white-space:nowrap; }
-  .res-badge.rep{ background:var(--red-bg); color:var(--red); border:1px solid var(--red-bd); }
-  .res-badge.div{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd); }
-  .res-badge.wait{ background:#eef1f4; color:var(--slate); border:1px solid var(--line); }
-  .res-badge.ok{ background:var(--green-bg); color:var(--green); border:1px solid #bfe0c9; }
-  /* checklist Anexo K apontado dentro do nó Val Auditor */
-  .ck-inline{ margin-top:7px; padding-top:6px; border-top:1px dashed var(--line);
-    display:flex; align-items:center; gap:7px; flex-wrap:wrap; font-size:7.7pt; color:var(--slate); }
-  .ck-inline .ck-tag{ background:var(--g-50); color:var(--g-800); font-weight:700; font-size:6.6pt;
-    letter-spacing:.5px; text-transform:uppercase; padding:2px 7px; border-radius:4px; border:1px solid var(--line); }
-  .ck-inline .ck-ind b{ color:var(--g-800); }
-  .ck-inline .ck-sep{ color:var(--muted); }
-  .ck-inline .ck-esc{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd);
-    font-weight:800; font-size:6.6pt; letter-spacing:.4px; padding:2px 7px; border-radius:4px; }
-  .ck-inline .ck-ref{ margin-left:auto; font-family:"Courier New",monospace; font-size:6.8pt; color:var(--muted); }
-  /* lista de referência dos 12 critérios do Anexo K (no glossário) */
-  .ck-ref-list{ display:flex; flex-wrap:wrap; gap:5px 18px; margin-top:2px; }
-  .ck-ref-item{ flex:0 0 46%; display:flex; gap:7px; align-items:baseline; font-size:8pt;
-    color:var(--navy); line-height:1.3; page-break-inside:avoid; }
-  .ck-ref-item .n{ flex:0 0 16px; height:16px; line-height:16px; text-align:center;
-    background:var(--g-700); color:#fff; font-size:6.7pt; font-weight:700; border-radius:4px; }
-
-  /* ---------- CABEÇALHO ORIGINAL (topbar já existente — não alterar) ---------- */
-  .topbar{ background:#1f3a5f; color:#fff; padding:12px 16px; display:flex;
-    justify-content:space-between; align-items:flex-start;
-    border-left:8px solid #2f6fb3; margin-bottom:14px; }
-  .topbar .brand{ font-size:14pt; font-weight:700; letter-spacing:1px; }
-  .topbar .sub{ font-size:8pt; color:#c7d6e8; margin-top:2px; }
-  .topbar .right{ text-align:right; font-size:7.5pt; color:#c7d6e8; }
-  .topbar .right .conf{ font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:1px; }
-
-  /* ---------- PARECERES (Auditor / Supervisor) + CONCLUSÃO ---------- */
-  .parecer{ border:1px solid var(--line); border-radius:9px; margin:9px 0; overflow:hidden; page-break-inside:avoid; }
+  /* ---------- PARECER / DECISÃO (Auditor / Supervisor) ---------- */
+  .parecer{ border:1px solid var(--line); margin:9px 0; page-break-inside:avoid; }
   .parecer .ph{ display:flex; justify-content:space-between; align-items:center;
-    padding:7px 12px; background:var(--g-50); border-bottom:1px solid var(--line); }
-  .parecer .ph .nm{ font-weight:700; color:var(--g-800); font-size:9.3pt; }
-  .parecer .ph .st{ font-size:6.8pt; font-weight:800; letter-spacing:.4px; padding:2px 9px; border-radius:5px; }
-  .parecer .ph .st.wait{ background:#eef1f4; color:var(--slate); border:1px solid var(--line); }
-  .parecer .ph .st.done{ background:var(--green-bg); color:var(--green); border:1px solid #bfe0c9; }
-  .parecer .pbody{ padding:9px 12px; }
+    padding:7px 12px; background:var(--fill-soft); border-bottom:1px solid var(--line); }
+  .parecer .ph .nm{ font-weight:700; font-size:9.4pt; }
+  .parecer .ph .st{ font-size:7.6pt; font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
+  .parecer .pbody{ padding:9px 13px; }
   .parecer .fld{ margin:7px 0; }
-  .parecer .fld .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700; }
-  .parecer .fld .v{ font-size:8.6pt; color:var(--navy); margin-top:2px; }
-  .parecer .blank{ border-bottom:1px dashed var(--line); height:13px; margin-top:4px; }
-  .parecer .meta-row{ display:flex; gap:20px; margin-top:9px; }
+  .parecer .fld .k{ font-size:6.8pt; text-transform:uppercase; letter-spacing:.5px; color:var(--gray); font-weight:700; }
+  .parecer .fld .v{ font-size:8.7pt; margin-top:2px; }
+  .parecer .blank{ border-bottom:1px dotted var(--line-soft); height:13px; margin-top:4px; }
+  .parecer .meta-row{ display:flex; gap:22px; margin-top:9px; }
   .parecer .meta-row > span{ flex:1; }
-  .conclusao{ border:1px solid var(--line); border-left:5px solid var(--g-700); border-radius:9px;
-    background:var(--g-50); padding:12px 15px; margin:6px 0; page-break-inside:avoid; }
-  .conclusao p{ font-size:9.1pt; color:var(--ink); line-height:1.55; margin:0 0 7px 0; text-align:justify; }
-  .conclusao p:last-child{ margin-bottom:0; font-weight:700; color:var(--g-800);
-    border-top:1px solid var(--line); padding-top:8px; margin-top:9px; }
+
+  /* ---------- CONCLUSÃO ---------- */
+  .conclusao{ border:1.4px solid var(--line); padding:13px 16px; margin:6px 0; page-break-inside:avoid; }
+  .conclusao p{ font-size:9.3pt; line-height:1.6; margin:0 0 8px 0; text-align:justify; }
+  .conclusao p:last-child{ margin-bottom:0; font-weight:700; border-top:1px solid var(--line);
+    padding-top:9px; margin-top:10px; }
+
+  .nota{ font-size:7.6pt; color:var(--gray); line-height:1.5; margin-top:9px;
+    border-top:1px solid var(--line-soft); padding-top:7px; font-style:italic; }
+  .pb{ page-break-before: always; }
 </style>
 </head>
 <body>
 
-{# ============ CABEÇALHO — topbar original (já existente, não alterado) ============ #}
-<div class="topbar">
+{# ============ TIMBRADO INSTITUCIONAL (única peça com cor) ============ #}
+<div class="letterhead">
   <div>
-    <div class="brand">{{ cabecalho.titulo }}</div>
+    <div class="inst">{{ cabecalho.titulo }}</div>
     <div class="sub">{{ cabecalho.subtitulo }}</div>
   </div>
   <div class="right">
-    <div class="conf">Confidential</div>
+    <div class="conf">Confidencial</div>
     <div>{{ cabecalho.resolucao_ref }}</div>
   </div>
 </div>
 
 {# ---- faixa de metadados (código / versão / emitido / processamento) ---- #}
-<div class="docmeta">
-  <div class="cell"><div class="k">Código do Laudo</div><div class="v mono">{{ b1_identificacao.codigo_laudo }}</div></div>
-  <div class="cell"><div class="k">Versão</div><div class="v">{{ b1_identificacao.versao }}</div></div>
-  <div class="cell"><div class="k">Emitido em</div><div class="v">{{ b1_identificacao.emitido_em }}</div></div>
-  <div class="cell"><div class="k">Processamento</div><div class="v">{{ b1_identificacao.tempo_processamento }}</div></div>
-</div>
+<table class="meta">
+  <tr>
+    <td><span class="k">Código do Laudo</span><span class="v mono">{{ b1_identificacao.codigo_laudo }}</span></td>
+    <td><span class="k">Versão</span><span class="v">{{ b1_identificacao.versao }}</span></td>
+    <td><span class="k">Emitido em</span><span class="v">{{ b1_identificacao.emitido_em }}</span></td>
+    <td><span class="k">Processamento</span><span class="v">{{ b1_identificacao.tempo_processamento }}</span></td>
+  </tr>
+</table>
 
-{# ============ RESUMO — CADEIA DE AVALIAÇÃO (primeira página) ============ #}
-<div class="summary-head">
-  <span class="t">Resumo da Avaliação</span>
-  <span class="s">Cadeia de decisão do processo — partes, datas e resultados</span>
-</div>
-<div class="sum-outcome">
-  Resultado consolidado: <b>{{ b2_sumario.resultado_calculado or '—' }}</b> ·
-  {% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}sem divergência entre Comissão e Val Auditor{% else %}<b>Divergência {{ b2_sumario.rotulo_divergencia }}</b> entre a Comissão Examinadora e o Val Auditor{% endif %} ·
-  encaminhamento: {{ b2_sumario.encaminhamento.fluxo }}.
-</div>
-<div class="evchain">
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Comissão Examinadora</div>
-        <div class="who">{{ b3_completa.examinador.nome }} · {{ b3_completa.examinador.matricula }} · {{ b3_completa.examinador.comissao }}</div></div>
-      <span class="res-badge rep">Oficial: {{ b2_sumario.resultado_oficial or '—' }}</span>
-    </div>
-    <div class="meta">
-      <span><span class="k">Registrado em</span><br><span class="dt">{{ b4_resultado_oficial.registrado_em }}</span></span>
-      <span><span class="k">Pontuação atribuída</span><br>{{ b4_resultado_oficial.pontuacao }}</span>
-    </div>
-  </div></div>
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Val Auditor — Motor de Detecção (IA)</div>
-        <div class="who">{{ b1_identificacao.modelo_ia }}</div></div>
-      <span class="res-badge rep">Calculado: {{ b2_sumario.resultado_calculado or '—' }}</span>
-    </div>
-    <div class="meta">
-      <span><span class="k">Pontuação calculada</span><br>{{ b2_sumario.pontuacao_calculada if b2_sumario.pontuacao_calculada is not none else '—' }} / limite {{ b2_sumario.limite }}</span>
-      <span><span class="k">Confiança agregada</span><br>{{ b5_resultado_calculado.confianca_agregada }}</span>
-      <span><span class="k">Infrações detectadas</span><br>{{ b5_resultado_calculado.num_infracoes }}</span>
-    </div>
-    {# Checklist Anexo K — conformidade procedimental apurada pelo Val Auditor #}
-    <div class="ck-inline">
-      <span class="ck-tag">Checklist Anexo K</span>
-      <span class="ck-ind"><b>{{ checklist_anexo_k.indicador }}</b> itens conformes</span>
-      <span class="ck-sep">·</span>
-      <span>{{ checklist_anexo_k.itens | selectattr('veredito','equalto','nao') | list | length }} não conforme(s)</span>
-      <span class="ck-sep">·</span>
-      <span>{{ (checklist_anexo_k.itens | length) - (checklist_anexo_k.itens | selectattr('veredito','equalto','sim') | list | length) - (checklist_anexo_k.itens | selectattr('veredito','equalto','nao') | list | length) }} verif. humana</span>
-      {% if checklist_anexo_k.escalou_auditor %}<span class="ck-esc">ESCALADO AO AUDITOR</span>{% endif %}
-      <span class="ck-ref">→ detalhe no Bloco Anexo K</span>
-    </div>
-  </div></div>
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Comitê Val (IA)</div>
-        <div class="who">{{ b1_identificacao.modelo_comite }}</div></div>
-      <span class="res-badge div">{{ b6_divergencia.rotulo }}</span>
-    </div>
-    <div class="meta">
-      <span><span class="k">Atuação</span><br>Classificação e contraditório técnico da divergência</span>
-    </div>
-  </div></div>
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Auditor — revisão humana</div>
-        <div class="who">{% if parecer_auditor %}{{ parecer_auditor.responsavel }}{% else %}{{ b2_sumario.encaminhamento.fluxo }}{% endif %}</div></div>
-      {% if parecer_auditor %}<span class="res-badge {{ 'ok' if parecer_auditor.resultado_final == 'APROVADO' else 'rep' }}">{{ parecer_auditor.decisao_label }}</span>{% else %}<span class="res-badge wait">Aguardando parecer</span>{% endif %}
-    </div>
-    <div class="meta">
-      {% if parecer_auditor %}
-      <span><span class="k">Resultado final</span><br>{{ parecer_auditor.resultado_final or '—' }}</span>
-      <span><span class="k">Registrado em</span><br><span class="dt">{{ parecer_auditor.data }}</span></span>
-      {% else %}
-      <span><span class="k">Prioridade</span><br>{{ b2_sumario.encaminhamento.prioridade }}</span>
-      <span><span class="k">SLA recomendado</span><br>{{ b2_sumario.encaminhamento.sla }}</span>
-      {% endif %}
-    </div>
-  </div></div>
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Supervisor — decisão final</div>
-        <div class="who">{% if decisao_supervisor %}{{ decisao_supervisor.responsavel }}{% else %}Homologação do parecer do Auditor{% endif %}</div></div>
-      {% if decisao_supervisor %}<span class="res-badge {{ 'ok' if decisao_supervisor.resultado_final == 'APROVADO' else 'rep' }}">{{ decisao_supervisor.decisao_label }}</span>{% else %}<span class="res-badge wait">Aguardando decisão</span>{% endif %}
-    </div>
-    {% if decisao_supervisor %}
-    <div class="meta">
-      <span><span class="k">Resultado final</span><br>{{ decisao_supervisor.resultado_final or '—' }}</span>
-      <span><span class="k">Registrado em</span><br><span class="dt">{{ decisao_supervisor.data }}</span></span>
-    </div>
-    {% endif %}
-  </div></div>
-  <div class="evnode"><div class="evcard">
-    <div class="top">
-      <div><div class="role">Emissão do Laudo</div>
-        <div class="who">{{ b1_identificacao.versao }} · {{ b1_identificacao.assinatura }}</div></div>
-      <span class="res-badge ok">Emitido</span>
-    </div>
-    <div class="meta">
-      <span><span class="k">Emitido em</span><br><span class="dt">{{ b1_identificacao.emitido_em }}</span></span>
-      <span><span class="k">Código do laudo</span><br><span class="dt">{{ b1_identificacao.codigo_laudo }}</span></span>
-    </div>
-  </div></div>
+{# ============ 1. RESUMO DA AVALIAÇÃO ============ #}
+<div class="sec">
+  <div class="sec-h">1. Resumo da Avaliação</div>
+
+  <div class="sub-h">1.1. Cadeia de decisão</div>
+  <table class="cadeia">
+    <thead><tr><th>Nº</th><th>Instância</th><th>Responsável / Origem</th><th>Resultado</th><th>Data/Hora</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="n">1</td>
+        <td>Comissão Examinadora</td>
+        <td>{{ b3_completa.examinador.nome }} · {{ b3_completa.examinador.matricula }}</td>
+        <td class="res">{{ b2_sumario.resultado_oficial or '—' }}</td>
+        <td class="dt">{{ b4_resultado_oficial.registrado_em }}</td>
+      </tr>
+      <tr>
+        <td class="n">2</td>
+        <td>Val Auditor — Motor de Detecção (IA)<sup>(*)</sup></td>
+        <td>{{ b1_identificacao.modelo_ia }}</td>
+        <td class="res">{{ b2_sumario.resultado_calculado or '—' }}</td>
+        <td class="dt">—</td>
+      </tr>
+      <tr>
+        <td class="n">3</td>
+        <td>Comitê Val (IA)</td>
+        <td>{{ b1_identificacao.modelo_comite }}</td>
+        <td class="res">{{ b6_divergencia.rotulo }}</td>
+        <td class="dt">—</td>
+      </tr>
+      <tr>
+        <td class="n">4</td>
+        <td>Auditor — revisão humana</td>
+        <td>{% if parecer_auditor %}{{ parecer_auditor.responsavel }}{% else %}—{% endif %}</td>
+        <td class="res">{% if parecer_auditor %}{{ parecer_auditor.decisao_label }}{% if parecer_auditor.resultado_final %} — {{ parecer_auditor.resultado_final }}{% endif %}{% else %}Pendente{% endif %}</td>
+        <td class="dt">{% if parecer_auditor %}{{ parecer_auditor.data }}{% else %}—{% endif %}</td>
+      </tr>
+      <tr>
+        <td class="n">5</td>
+        <td>Supervisor — decisão final</td>
+        <td>{% if decisao_supervisor %}{{ decisao_supervisor.responsavel }}{% else %}—{% endif %}</td>
+        <td class="res">{% if decisao_supervisor %}{{ decisao_supervisor.decisao_label }}{% if decisao_supervisor.resultado_final %} — {{ decisao_supervisor.resultado_final }}{% endif %}{% else %}Pendente{% endif %}</td>
+        <td class="dt">{% if decisao_supervisor %}{{ decisao_supervisor.data }}{% else %}—{% endif %}</td>
+      </tr>
+      <tr>
+        <td class="n">6</td>
+        <td>Emissão do Laudo</td>
+        <td>{{ b1_identificacao.versao }}</td>
+        <td class="res">Emitido</td>
+        <td class="dt">{{ b1_identificacao.emitido_em }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="footnote">(*) Conformidade procedimental apurada pelo Val Auditor — Checklist Anexo K:
+  {{ checklist_anexo_k.indicador }} itens conformes
+  ({{ checklist_anexo_k.itens | selectattr('veredito','equalto','nao') | list | length }} não conforme(s),
+  {{ (checklist_anexo_k.itens | length) - (checklist_anexo_k.itens | selectattr('veredito','equalto','sim') | list | length) - (checklist_anexo_k.itens | selectattr('veredito','equalto','nao') | list | length) }} sob verificação humana{% if checklist_anexo_k.escalou_auditor %}; caso escalado ao Auditor{% endif %})
+  — ver Seção 10 (Checklist Técnico — Anexo K).</p>
+
+  <div class="sub-h">1.2. Resultado consolidado</div>
+  <p style="font-size:8.8pt; line-height:1.55; text-align:justify;">
+  Resultado consolidado: <b>{{ b2_sumario.resultado_calculado or '—' }}</b>.
+  {% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}Não há divergência entre a Comissão Examinadora e o Val Auditor.{% else %}Há <b>divergência {{ b2_sumario.rotulo_divergencia }}</b> entre a Comissão Examinadora e o Val Auditor.{% endif %}
+  Encaminhamento: {{ b2_sumario.encaminhamento.fluxo }}.</p>
 </div>
 <div class="pb"></div>
 
-{# ============ BLOCO 1 — IDENTIFICAÇÃO DO LAUDO ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">1</span><span class="ttl">Identificação do Laudo</span>
-    <span class="stamp">Proveniência &amp; Integridade</span>
-  </div>
-  <hr class="rule">
+{# ============ 2. IDENTIFICAÇÃO DO LAUDO ============ #}
+<div class="sec">
+  <div class="sec-h">2. Identificação do Laudo</div>
   <div class="cols">
     <div>
       <table class="kv">
@@ -592,8 +338,8 @@
       </table>
     </div>
   </div>
-  <div class="callout cinza" style="margin-top:8px;">
-    <span class="t">Cadeia de integridade — verificação criptográfica</span>
+  <div class="nota-box" style="margin-top:9px;">
+    <span class="lbl">Cadeia de integridade — verificação criptográfica</span>
     <div class="integ">
       <div><span class="ik">Hash do vídeo original</span><span class="iv">{{ b1_identificacao.video_hash }}</span></div>
       <div><span class="ik">Hash do laudo (SHA-256)</span><span class="iv">{{ b1_identificacao.hash_laudo }}</span></div>
@@ -604,75 +350,55 @@
   da Comissão competente, conforme Art. 43, §1º da Resolução CONTRAN nº 1.020/2025.</p>
 </div>
 
-{# ============ BLOCO 2 — SUMÁRIO EXECUTIVO ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">2</span><span class="ttl">Sumário Executivo</span>
-    <span class="stamp">Veredito Agregado</span>
-  </div>
-  <hr class="rule">
-  <div class="banner {{ b2_sumario.semaforo }}">
-    <div class="b-tag">{% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}Concordância{% else %}Divergência detectada{% endif %}</div>
-    <div class="b-title">{% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}CONCORDÂNCIA ENTRE FONTES{% else %}DIVERGÊNCIA — {{ b2_sumario.rotulo_divergencia }}{% endif %}</div>
-    <div class="b-flow">Encaminhamento: {{ b2_sumario.encaminhamento.fluxo }}</div>
+{# ============ 3. SUMÁRIO EXECUTIVO ============ #}
+<div class="sec">
+  <div class="sec-h">3. Sumário Executivo</div>
+  <div class="aviso">
+    <div class="tag">{% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}Concordância entre fontes{% else %}Divergência detectada{% endif %}</div>
+    <div class="ttl">{% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}CONCORDÂNCIA ENTRE FONTES{% else %}DIVERGÊNCIA — {{ b2_sumario.rotulo_divergencia }}{% endif %}</div>
+    <div class="flow">Encaminhamento: {{ b2_sumario.encaminhamento.fluxo }}</div>
   </div>
 
-  <div class="results">
-    <div class="rcard of {{ 'repr' if b2_sumario.resultado_oficial == 'REPROVADO' else 'apr' }}">
-      <div class="rc-h">Resultado Oficial · Comissão Examinadora</div>
-      <div class="rc-b">
-        <div class="verdict">{{ b2_sumario.resultado_oficial or '—' }}</div>
-        <div class="score">Pontuação: <b>{{ b2_sumario.pontuacao_oficial if b2_sumario.pontuacao_oficial is not none else 'não informada' }}</b></div>
-      </div>
+  <div class="veredito-cols">
+    <div>
+      <div class="lbl">Resultado Oficial · Comissão Examinadora</div>
+      <div class="val">{{ b2_sumario.resultado_oficial or '—' }}</div>
+      <div class="sub">Pontuação: <b>{{ b2_sumario.pontuacao_oficial if b2_sumario.pontuacao_oficial is not none else 'não informada' }}</b></div>
     </div>
-    <div class="rcard va {{ 'repr' if b2_sumario.resultado_calculado == 'REPROVADO' else 'apr' }}">
-      <div class="rc-h">Resultado Calculado · Val Auditor</div>
-      <div class="rc-b">
-        <div class="verdict">{{ b2_sumario.resultado_calculado or '—' }}</div>
-        <div class="score">Pontuação: <b>{{ b2_sumario.pontuacao_calculada if b2_sumario.pontuacao_calculada is not none else '—' }}</b> &nbsp;·&nbsp; limite {{ b2_sumario.limite }}</div>
-      </div>
+    <div>
+      <div class="lbl">Resultado Calculado · Val Auditor</div>
+      <div class="val">{{ b2_sumario.resultado_calculado or '—' }}</div>
+      <div class="sub">Pontuação: <b>{{ b2_sumario.pontuacao_calculada if b2_sumario.pontuacao_calculada is not none else '—' }}</b> &nbsp;·&nbsp; limite {{ b2_sumario.limite }}</div>
     </div>
   </div>
 
-  <h3 class="mini">Veredito agregado</h3>
-  <div class="callout cinza">{{ b2_sumario.veredito_agregado }}</div>
+  <div class="sub-h">3.1. Veredito agregado</div>
+  <div class="nota-box">{{ b2_sumario.veredito_agregado }}</div>
 
-  <h3 class="mini">Indicadores do exame</h3>
-  <div class="inds">
-    {% for ind in b2_sumario.indicadores %}
-    <div class="ind {{ 'alerta' if ('inadequado' in ind.valor and not ind.valor.startswith('0')) else '' }}">
-      <div class="v">{{ ind.valor }}</div><div class="k">{{ ind.label }}</div>
-    </div>
-    {% endfor %}
-  </div>
+  <div class="sub-h">3.2. Indicadores do exame</div>
+  <table class="inds">
+    <tr>
+      {% for ind in b2_sumario.indicadores %}
+      <td><span class="v">{{ ind.valor }}</span><span class="k">{{ ind.label }}</span></td>
+      {% endfor %}
+    </tr>
+  </table>
 
-  <h3 class="mini">Recomendação de encaminhamento</h3>
+  <div class="sub-h">3.3. Recomendação de encaminhamento</div>
   <div class="reco">
-    <div class="side"></div>
-    <div class="body">
-      <div class="t">{{ b2_sumario.encaminhamento.fluxo }}</div>
-      <div class="meta">{{ b2_sumario.encaminhamento.razao }}</div>
-      <div class="meta">
-        Prioridade:
-        {% set p = b2_sumario.encaminhamento.prioridade %}
-        <span class="tag {{ 'prio-alta' if p == 'alta' else ('prio-media' if p == 'média' or p == 'media' else 'prio-baixa') }}">{{ p }}</span>
-        &nbsp;·&nbsp; <b>SLA:</b> {{ b2_sumario.encaminhamento.sla }}
-      </div>
-    </div>
+    <div class="t">{{ b2_sumario.encaminhamento.fluxo }}</div>
+    <div class="meta">{{ b2_sumario.encaminhamento.razao }}</div>
+    <div class="meta">Prioridade: <b>{{ b2_sumario.encaminhamento.prioridade }}</b> &nbsp;·&nbsp; SLA: <b>{{ b2_sumario.encaminhamento.sla }}</b></div>
   </div>
 </div>
 
-{# ============ BLOCO 3 — IDENTIFICAÇÃO COMPLETA ============ #}
+{# ============ 4. IDENTIFICAÇÃO COMPLETA ============ #}
 <div class="pb"></div>
-<div class="block">
-  <div class="block-head">
-    <span class="num">3</span><span class="ttl">Identificação Completa</span>
-    <span class="stamp">Partes &amp; Contexto</span>
-  </div>
-  <hr class="rule">
+<div class="sec">
+  <div class="sec-h">4. Identificação Completa</div>
   <div class="cols">
     <div>
-      <h3 class="mini">Candidato</h3>
+      <div class="sub-h">4.1. Candidato</div>
       <table class="kv">
         <tr><th>Nome</th><td>{{ b3_completa.candidato.nome }}</td></tr>
         <tr><th>CPF</th><td class="mono">{{ b3_completa.candidato.cpf }}</td></tr>
@@ -684,7 +410,7 @@
       </table>
     </div>
     <div>
-      <h3 class="mini">Examinador</h3>
+      <div class="sub-h">4.2. Examinador</div>
       <table class="kv">
         <tr><th>Nome</th><td>{{ b3_completa.examinador.nome }}</td></tr>
         <tr><th>Matrícula</th><td class="mono">{{ b3_completa.examinador.matricula }}</td></tr>
@@ -694,23 +420,19 @@
       </table>
     </div>
   </div>
-  <h3 class="mini">Veículo · Unidade · Tempo</h3>
+  <div class="sub-h">4.3. Veículo · Unidade · Tempo</div>
   <table class="kv">
     <tr><th>Veículo</th><td>Placa <span class="mono">{{ b3_completa.veiculo.placa }}</span> · {{ b3_completa.veiculo.modelo }} ({{ b3_completa.veiculo.ano }}) · Duplo comando: {{ b3_completa.veiculo.duplo_comando }}</td></tr>
     <tr><th>Unidade</th><td>{{ b3_completa.unidade.nome }} — {{ b3_completa.unidade.endereco }} · <span class="mono">{{ b3_completa.unidade.codigo }}</span> · {{ b3_completa.unidade.auto_escola }}</td></tr>
     <tr><th>Data / Início / Fim</th><td><span class="mono">{{ b3_completa.tempo.data }}</span> · <span class="mono">{{ b3_completa.tempo.inicio }} → {{ b3_completa.tempo.fim }}</span> ({{ b3_completa.tempo.duracao }})</td></tr>
     <tr><th>Trajeto</th><td>{{ b3_completa.tempo.trajeto }}</td></tr>
   </table>
-  <div class="callout laranja"><span class="t">LGPD — Tratamento de dados pessoais</span>{{ b3_completa.lgpd_nota }}</div>
+  <div class="nota-box"><span class="lbl">LGPD — Tratamento de dados pessoais</span>{{ b3_completa.lgpd_nota }}</div>
 </div>
 
-{# ============ BLOCO 4 — RESULTADO OFICIAL ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">4</span><span class="ttl">Resultado Oficial Detalhado</span>
-    <span class="stamp">Registro da Comissão</span>
-  </div>
-  <hr class="rule">
+{# ============ 5. RESULTADO OFICIAL DETALHADO ============ #}
+<div class="sec">
+  <div class="sec-h">5. Resultado Oficial Detalhado</div>
   <table class="kv">
     <tr><th>Decisão final</th><td><b>{{ b4_resultado_oficial.decisao }}</b></td></tr>
     <tr><th>Pontuação atribuída</th><td>{{ b4_resultado_oficial.pontuacao }}</td></tr>
@@ -719,7 +441,7 @@
     <tr><th>Data/hora do registro</th><td class="mono">{{ b4_resultado_oficial.registrado_em }}</td></tr>
   </table>
   {% if b4_resultado_oficial.anotacoes_tpa %}
-  <h3 class="mini">Anotações da examinadora no TPA</h3>
+  <div class="sub-h">5.1. Anotações da examinadora no TPA</div>
   <table class="grid">
     <thead><tr><th style="width:14%">Tempo</th><th style="width:28%">Categoria registrada</th><th>Texto registrado</th></tr></thead>
     <tbody>
@@ -729,16 +451,12 @@
     </tbody>
   </table>
   {% endif %}
-  <div class="callout laranja"><span class="t">Observação técnica sobre o registro oficial</span>{{ b4_resultado_oficial.observacao_tecnica }}</div>
+  <div class="nota-box"><span class="lbl">Observação técnica sobre o registro oficial</span>{{ b4_resultado_oficial.observacao_tecnica }}</div>
 </div>
 
-{# ============ BLOCO 5 — RESULTADO CALCULADO ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">5</span><span class="ttl">Resultado Calculado pelo Val Auditor</span>
-    <span class="stamp">Motor Normativo</span>
-  </div>
-  <hr class="rule">
+{# ============ 6. RESULTADO CALCULADO PELO VAL AUDITOR ============ #}
+<div class="sec">
+  <div class="sec-h">6. Resultado Calculado pelo Val Auditor</div>
   <table class="kv">
     <tr><th>Decisão calculada</th><td><b>{{ b5_resultado_calculado.decisao }}</b></td></tr>
     <tr><th>Pontuação calculada</th><td><span class="mono">{{ b5_resultado_calculado.pontuacao if b5_resultado_calculado.pontuacao is not none else '—' }}</span> pontos</td></tr>
@@ -750,19 +468,15 @@
   </table>
 </div>
 
-{# ============ BLOCO 6 — ANÁLISE DE DIVERGÊNCIA ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">6</span><span class="ttl">Análise de Divergência</span>
-    <span class="stamp">Contraditório</span>
-  </div>
-  <hr class="rule">
-  <div class="banner {{ b2_sumario.semaforo }}">
-    <div class="b-tag">Classificação da divergência</div>
-    <div class="b-title">{{ b6_divergencia.rotulo }}</div>
+{# ============ 7. ANÁLISE DE DIVERGÊNCIA ============ #}
+<div class="sec">
+  <div class="sec-h">7. Análise de Divergência</div>
+  <div class="aviso">
+    <div class="tag">Classificação da divergência</div>
+    <div class="ttl">{{ b6_divergencia.rotulo }}</div>
   </div>
   {% if b6_divergencia.subtipos %}
-  <h3 class="mini">Subtipos de divergência associados</h3>
+  <div class="sub-h">7.1. Subtipos de divergência associados</div>
   <table class="grid">
     <thead><tr><th style="width:26%">Tipo</th><th style="width:18%">Aplicável?</th><th>Justificativa</th></tr></thead>
     <tbody>
@@ -772,27 +486,21 @@
     </tbody>
   </table>
   {% endif %}
-  <h3 class="mini">Justificativa técnica da divergência</h3>
-  <div class="callout cinza"><span class="t">Hipótese principal</span>{{ b6_divergencia.justificativa.hipotese_principal }}</div>
-  <div class="callout roxo"><span class="t">Hipótese secundária</span>{{ b6_divergencia.justificativa.hipotese_secundaria }}</div>
-  <div class="callout azul"><span class="t">Recomendação</span>{{ b6_divergencia.justificativa.recomendacao }}</div>
+  <div class="sub-h">7.2. Justificativa técnica da divergência</div>
+  <div class="nota-box"><span class="lbl">Hipótese principal</span>{{ b6_divergencia.justificativa.hipotese_principal }}</div>
+  <div class="nota-box"><span class="lbl">Hipótese secundária</span>{{ b6_divergencia.justificativa.hipotese_secundaria }}</div>
+  <div class="nota-box"><span class="lbl">Recomendação</span>{{ b6_divergencia.justificativa.recomendacao }}</div>
 </div>
 
-{# ============ BLOCO 7 — INFRAÇÕES ============ #}
+{# ============ 8. DETALHAMENTO DAS INFRAÇÕES ============ #}
 <div class="pb"></div>
-<div class="block">
-  <div class="block-head">
-    <span class="num">7</span><span class="ttl">Detalhamento das Infrações</span>
-    <span class="stamp">Enquadramento CTB / MBEDV</span>
-  </div>
-  <hr class="rule">
+<div class="sec">
+  <div class="sec-h">8. Detalhamento das Infrações</div>
   {% for inf in b7_infracoes.infracoes %}
-  <div class="inf">
-    <div class="head {{ inf.cor }}">
-      <span class="id">{{ inf.inf_id }}</span>
-      <span class="art">{{ inf.artigo_ctb }}</span>
-      <span class="sev">{{ inf.severidade_label }}</span>
-      {% if inf.pontos is not none %}<span class="pts">{{ inf.pontos }} {{ 'ponto' if inf.pontos == 1 else 'pontos' }}</span>{% else %}<span class="pts">sem pontuação</span>{% endif %}
+  <div class="infra">
+    <div class="ih">
+      <span>8.{{ loop.index }}. {{ inf.inf_id }} — {{ inf.artigo_ctb }} — {{ inf.severidade_label }}</span>
+      <span>{% if inf.pontos is not none %}{{ inf.pontos }} {{ 'ponto' if inf.pontos == 1 else 'pontos' }}{% else %}sem pontuação{% endif %}</span>
     </div>
     <table class="kv">
       <tr><th>Conduta observada</th><td>{{ inf.conduta_observada }}</td></tr>
@@ -800,20 +508,15 @@
       <tr><th>Câmera-fonte</th><td>{{ inf.camera_origem }}</td></tr>
       {% if inf.evidencia_audio %}<tr><th>Evidência de áudio</th><td><span class="ev">{{ inf.evidencia_audio }}</span></td></tr>{% endif %}
       <tr><th>Ficha MBEDV</th><td class="mono">{{ inf.ficha_mbedv }}</td></tr>
-      <tr><th>Nível de confiança</th><td>
-        <span class="conf-wrap">
-          <span class="conf-bar"><i style="width:{{ inf.confianca_pct }}%;"></i></span>
-          <span class="conf-num">{{ inf.confianca_pct }}%</span>
-        </span>
-      </td></tr>
+      <tr><th>Nível de confiança</th><td>{{ inf.confianca_pct }}%</td></tr>
       <tr><th>Exceções analisadas</th><td>{{ inf.excecoes_analisadas }}</td></tr>
       <tr><th>Fundamentação CTB</th><td>{{ inf.fundamentacao_ctb }}</td></tr>
-      <tr><th>Recomendação técnica</th><td><span class="reco-pill">{{ inf.recomendacao_tecnica }}</span></td></tr>
+      <tr><th>Recomendação técnica</th><td><b>{{ inf.recomendacao_tecnica }}</b></td></tr>
     </table>
   </div>
   {% endfor %}
   {% if b7_infracoes.eventos_sem_enquadramento %}
-  <h3 class="mini">Eventos observados sem enquadramento normativo</h3>
+  <div class="sub-h">8.{{ b7_infracoes.infracoes | length + 1 }}. Eventos observados sem enquadramento normativo</div>
   <p class="lead">Eventos detectados que não atingem o limiar de tipificação — não pontuam, registrados para rastreabilidade.</p>
   <table class="grid">
     <thead><tr><th style="width:12%">Tempo</th><th style="width:22%">Categoria</th><th>Observação</th><th style="width:24%">Origem</th></tr></thead>
@@ -826,86 +529,50 @@
   {% endif %}
 </div>
 
-{# ============ BLOCO 8 — LINHA DO TEMPO ============ #}
-{# sem quebra forçada: a timeline flui logo após a tabela de eventos do B7, evitando página órfã #}
-<div class="block" style="margin-top:14px;">
-  <div class="block-head">
-    <span class="num">8</span><span class="ttl">Linha do Tempo do Exame</span>
-    <span class="stamp">Cronologia Integrada</span>
-  </div>
-  <hr class="rule">
+{# ============ 9. LINHA DO TEMPO DO EXAME ============ #}
+<div class="sec">
+  <div class="sec-h">9. Linha do Tempo do Exame</div>
   <p class="lead">Cronologia integrada dos eventos detectados: áudio, visão computacional, anotações TPA e decisões registradas.</p>
-  <div class="tl-wrap">
-    <div class="tl-bar">
-      {% for g in [25, 50, 75] %}<div class="gl" style="left: {{ g }}%;"></div>{% endfor %}
-      {% for ev in b8_linha_tempo if ev.pct is not none %}
-        <div class="tick {{ ev.cor }}" style="left: {{ ev.pct }}%;"></div>
-      {% endfor %}
-    </div>
-    <div class="tl-scale"><span>00:00</span><span>25%</span><span>50%</span><span>75%</span><span>{{ b3_completa.tempo.duracao }}</span></div>
-    <div class="tl-legend">
-      <span><i class="li sistema"></i>Sistema</span>
-      <span><i class="li infracao"></i>Infração</span>
-      <span><i class="li tpa"></i>Anotação TPA</span>
-      <span><i class="li audio_inadequado"></i>Áudio inadequado</span>
-      <span><i class="li neutro"></i>Comportamento neutro</span>
-    </div>
-  </div>
   <table class="grid">
     <thead><tr><th style="width:11%">Tempo</th><th style="width:18%">Tipo</th><th style="width:22%">Origem</th><th>Descrição</th></tr></thead>
     <tbody>
     {% for ev in b8_linha_tempo %}
-      <tr><td class="t-mono">{{ ev.tempo_fmt }}</td><td><span class="dot {{ ev.cor }}"></span>{{ ev.tipo }}</td><td>{{ ev.origem }}</td><td>{{ ev.descricao }}</td></tr>
+      <tr><td class="t-mono">{{ ev.tempo_fmt }}</td><td>{{ ev.tipo }}</td><td>{{ ev.origem }}</td><td>{{ ev.descricao }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
 
-{# ============ BLOCO — CHECKLIST TÉCNICO (ANEXO K) ============ #}
+{# ============ 10. CHECKLIST TÉCNICO — ANEXO K ============ #}
 <div class="pb"></div>
-<div class="block">
-  <div class="block-head">
-    <span class="num">K</span><span class="ttl">Checklist Técnico — Anexo K</span>
-    <span class="stamp">Conformidade Procedimental</span>
-  </div>
-  <hr class="rule">
+<div class="sec">
+  <div class="sec-h">10. Checklist Técnico — Anexo K</div>
   {% set ck_total = checklist_anexo_k.total or (checklist_anexo_k.itens | length) or 1 %}
   {% set n_sim = checklist_anexo_k.itens | selectattr('veredito','equalto','sim') | list | length %}
   {% set n_nao = checklist_anexo_k.itens | selectattr('veredito','equalto','nao') | list | length %}
   {% set n_hum = (checklist_anexo_k.itens | length) - n_sim - n_nao %}
-  <div class="ck-top">
-    <div class="ck-score">
-      <div class="big">{{ checklist_anexo_k.aprovados }}<small> / {{ checklist_anexo_k.total }}</small></div>
-      <div class="lbl">Itens conformes</div>
-      <div class="ck-meter"><i style="width: {{ (checklist_anexo_k.aprovados / ck_total * 100) | round(0, 'floor') }}%;"></i></div>
-    </div>
-    <div class="ck-note">
-      <span class="t">Verificação de conformidade procedimental (Anexo K)</span>
-      Conferência automática de {{ checklist_anexo_k.total }} requisitos formais do exame. Indicador agregado:
-      <b>{{ checklist_anexo_k.indicador }}</b>.
-      {% if checklist_anexo_k.escalou_auditor %}
-      Há item crítico não atendido — <b>caso escalado para auditoria humana</b>.
-      {% else %}
-      Itens marcados como “verificação humana” dependem de bases externas (biometria, comunicação verbal) e devem ser confirmados pelo auditor; não constituem reprovação automática.
-      {% endif %}
-    </div>
-  </div>
-  <div class="ck-stats">
-    <div class="s ok"><div class="v">{{ n_sim }}</div><div class="k">Conforme</div></div>
-    <div class="s no"><div class="v">{{ n_nao }}</div><div class="k">Não conforme</div></div>
-    <div class="s hu"><div class="v">{{ n_hum }}</div><div class="k">Verif. humana</div></div>
-    <div class="s tt"><div class="v">{% if checklist_anexo_k.escalou_auditor %}SIM{% else %}NÃO{% endif %}</div><div class="k">Escalou auditor</div></div>
-  </div>
+  <p style="font-size:8.8pt; line-height:1.55; text-align:justify;">
+  Conferência automática de {{ checklist_anexo_k.total }} requisitos formais do exame (Anexo K, TR DETRAN-SE).
+  Indicador agregado: <b>{{ checklist_anexo_k.indicador }}</b> itens conformes.
+  {% if checklist_anexo_k.escalou_auditor %}Há item crítico não atendido — <b>caso escalado para auditoria humana</b>.
+  {% else %}Itens classificados como "verificação humana" dependem de bases externas (biometria, comunicação verbal) e devem ser confirmados pelo auditor; não constituem reprovação automática.{% endif %}</p>
+  <table class="resumo-ck">
+    <tr>
+      <td><span class="v">{{ n_sim }}</span><span class="k">Conforme</span></td>
+      <td><span class="v">{{ n_nao }}</span><span class="k">Não conforme</span></td>
+      <td><span class="v">{{ n_hum }}</span><span class="k">Verif. humana</span></td>
+      <td><span class="v">{% if checklist_anexo_k.escalou_auditor %}Sim{% else %}Não{% endif %}</span><span class="k">Escalou auditor</span></td>
+    </tr>
+  </table>
   <table class="ck">
-    <thead><tr><th style="width:26px">#</th><th>Requisito verificado</th><th style="width:118px">Veredito</th><th style="width:34%">Evidência</th></tr></thead>
+    <thead><tr><th style="width:26px">#</th><th>Requisito verificado</th><th style="width:130px">Veredito</th><th style="width:34%">Evidência</th></tr></thead>
     <tbody>
-    {% set vmap = {'sim': ('Conforme','ok'), 'nao': ('Não conforme','bad'), 'requer_verificacao_humana': ('Verif. humana','warn')} %}
+    {% set vmap = {'sim': 'Conforme', 'nao': 'Não conforme', 'requer_verificacao_humana': 'Verificação humana'} %}
     {% for it in checklist_anexo_k.itens %}
-      {% set vi = vmap.get(it.veredito, ('N/D','neutro')) %}
       <tr>
         <td class="n">{{ it.numero }}</td>
-        <td>{{ it.pergunta }}{% if it.critico %}<span class="crit">CRÍTICO</span>{% endif %}</td>
-        <td class="vd"><span class="badge {{ vi[1] }}">{{ vi[0] }}</span></td>
+        <td>{{ it.pergunta }}{% if it.critico %} <span class="crit-flag">(crítico)</span>{% endif %}</td>
+        <td class="vd">{{ vmap.get(it.veredito, 'N/D') }}</td>
         <td class="ev">{{ it.evidencia if it.evidencia else '—' }}</td>
       </tr>
     {% endfor %}
@@ -915,14 +582,10 @@
   acionam revisão por auditor humano antes da consolidação do resultado.</p>
 </div>
 
-{# ============ BLOCO — ENCAMINHAMENTO E PARECERES (Auditor / Supervisor) ============ #}
+{# ============ 11. ENCAMINHAMENTO E PARECERES ============ #}
 <div class="pb"></div>
-<div class="block">
-  <div class="block-head">
-    <span class="num">P</span><span class="ttl">Encaminhamento e Pareceres</span>
-    <span class="stamp">Revisão Humana · Fluxo 4 Níveis</span>
-  </div>
-  <hr class="rule">
+<div class="sec">
+  <div class="sec-h">11. Encaminhamento e Pareceres</div>
   <table class="kv">
     <tr><th>Fluxo de encaminhamento</th><td>{{ b2_sumario.encaminhamento.fluxo }}</td></tr>
     <tr><th>Razão</th><td>{{ b2_sumario.encaminhamento.razao }}</td></tr>
@@ -931,8 +594,8 @@
   </table>
 
   <div class="parecer">
-    <div class="ph"><span class="nm">Parecer do Auditor — revisão humana</span>
-      <span class="st {{ 'done' if parecer_auditor else 'wait' }}">{{ 'REGISTRADO' if parecer_auditor else 'AGUARDANDO' }}</span></div>
+    <div class="ph"><span class="nm">11.1. Parecer do Auditor — revisão humana</span>
+      <span class="st">{{ 'Situação: Registrado' if parecer_auditor else 'Situação: Aguardando' }}</span></div>
     <div class="pbody">
       {% if parecer_auditor %}
       <div class="fld"><span class="k">Decisão do Auditor</span><div class="v">{{ parecer_auditor.decisao_label or parecer_auditor.decisao }}{% if parecer_auditor.resultado_final %} — candidato {{ parecer_auditor.resultado_final }}{% endif %}</div></div>
@@ -953,8 +616,8 @@
   </div>
 
   <div class="parecer">
-    <div class="ph"><span class="nm">Decisão do Supervisor — decisão final</span>
-      <span class="st {{ 'done' if decisao_supervisor else 'wait' }}">{{ 'REGISTRADA' if decisao_supervisor else 'AGUARDANDO' }}</span></div>
+    <div class="ph"><span class="nm">11.2. Decisão do Supervisor — decisão final</span>
+      <span class="st">{{ 'Situação: Registrada' if decisao_supervisor else 'Situação: Aguardando' }}</span></div>
     <div class="pbody">
       {% if decisao_supervisor %}
       <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="v">{{ decisao_supervisor.decisao_label or decisao_supervisor.decisao }}{% if decisao_supervisor.resultado_final %} — candidato {{ decisao_supervisor.resultado_final }}{% endif %}</div></div>
@@ -975,13 +638,9 @@
   </div>
 </div>
 
-{# ============ BLOCO — CONCLUSÃO (laudo conclusivo, narrativa determinística) ============ #}
-<div class="block">
-  <div class="block-head">
-    <span class="num">C</span><span class="ttl">Conclusão — Parecer Técnico Final</span>
-    <span class="stamp">Laudo Conclusivo</span>
-  </div>
-  <hr class="rule">
+{# ============ 12. CONCLUSÃO — PARECER TÉCNICO FINAL ============ #}
+<div class="sec">
+  <div class="sec-h">12. Conclusão — Parecer Técnico Final</div>
   <div class="conclusao">
     {% for p in conclusao %}<p>{{ p }}</p>{% endfor %}
   </div>
@@ -989,32 +648,28 @@
   reproduzível byte a byte. Não substitui a decisão formal da Comissão Examinadora / Auditor / Supervisor competentes.</p>
 </div>
 
-{# ============ BLOCO — GLOSSÁRIO E NOTAS TÉCNICAS (estático / determinístico) ============ #}
+{# ============ 13. GLOSSÁRIO E NOTAS TÉCNICAS (estático / determinístico) ============ #}
 <div class="pb"></div>
-<div class="block">
-  <div class="block-head">
-    <span class="num">G</span><span class="ttl">Glossário e Notas Técnicas</span>
-    <span class="stamp">Referência Normativa</span>
-  </div>
-  <hr class="rule">
+<div class="sec">
+  <div class="sec-h">13. Glossário e Notas Técnicas</div>
   <p class="lead">Definições fixas dos termos, siglas e códigos empregados neste laudo. Conteúdo de referência,
   idêntico em todos os laudos da Estrutura v2.0 — não depende dos dados do exame.</p>
 
-  <div class="gloss-cap">Base normativa e siglas</div>
+  <div class="gloss-cap">13.1. Base normativa e siglas</div>
   <table class="gloss">
     <tr><th>CTB</th><td>Código de Trânsito Brasileiro (Lei nº 9.503/1997). Define as infrações de trânsito e os artigos citados no enquadramento das condutas observadas (ex.: Art. 169, Art. 193).</td></tr>
     <tr><th>Resolução CONTRAN nº 1.020/2025</th><td>Ato normativo do Conselho Nacional de Trânsito que regulamenta o exame prático de direção veicular e seus critérios de aprovação/reprovação. É a resolução vigente aplicada por este laudo (limite de pontos, fluxo de avaliação).</td></tr>
     <tr><th>MBEDV</th><td>Manual Brasileiro de Exame de Direção Veicular. Padroniza a execução e a avaliação do exame; cada conduta tipificada remete a uma <i>ficha MBEDV</i> correspondente, base técnica do enquadramento.</td></tr>
     <tr><th>Anexo K</th><td>Checklist de conformidade procedimental do MBEDV: conjunto de requisitos formais do exame (identificação, captura de vídeo/áudio, duração mínima, etc.) verificados item a item. Itens críticos não atendidos condicionam a validade do registro.</td></tr>
-    <tr><th>TPA</th><td>Terminal Portátil de Anotações — dispositivo no qual a examinadora registra, durante o exame, as anotações de avaliação (categoria, tempo e descrição da conduta). Fonte do "Resultado Oficial" (Bloco 4).</td></tr>
+    <tr><th>TPA</th><td>Terminal Portátil de Anotações — dispositivo no qual a examinadora registra, durante o exame, as anotações de avaliação (categoria, tempo e descrição da conduta). Fonte do "Resultado Oficial" (Seção 5).</td></tr>
     <tr><th>RENACH</th><td>Registro Nacional de Carteira de Habilitação — identificador único do processo de habilitação do candidato junto ao DETRAN.</td></tr>
     <tr><th>ICP-Brasil A1</th><td>Infraestrutura de Chaves Públicas Brasileira; certificado digital do tipo A1 (armazenado em software). Padrão de assinatura digital que confere validade jurídica e integridade ao laudo. "[DIFERIDO]" indica assinatura ainda não aplicada.</td></tr>
     <tr><th>LGPD</th><td>Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018). Determina o mascaramento de dados pessoais (nome, CPF) na versão não controlada do laudo; a versão integral só é exibida em ambiente controlado da Comissão.</td></tr>
   </table>
 
-  <div class="gloss-cap">Conceitos de análise</div>
+  <div class="gloss-cap">13.2. Conceitos de análise</div>
   <table class="gloss">
-    <tr><th>Semáforo de divergência</th><td>Código de cores do grau de divergência entre o resultado oficial e o calculado: <b>vermelho</b> = infração/divergência grave; <b>laranja</b> = atenção; <b>verde</b> = concordância/conforme; <b>roxo</b> = interrupção confirmada; <b>cinza</b> = inconclusivo/sem dados; <b>infração</b> = divergência por infração.</td></tr>
+    <tr><th>Semáforo de divergência</th><td>Classificação do grau de divergência entre o resultado oficial e o calculado: <b>vermelho</b> = infração/divergência grave; <b>laranja</b> = atenção; <b>verde</b> = concordância/conforme; <b>roxo</b> = interrupção confirmada; <b>cinza</b> = inconclusivo/sem dados; <b>infração</b> = divergência por infração. Conceito interno de classificação — não representado por cor neste documento.</td></tr>
     <tr><th>Tipos de divergência</th><td>
       <b>1. Resultado</b> — decisão final (aprovado/reprovado) difere entre as fontes.<br>
       <b>2. Pontuação</b> — a pontuação atribuída difere, ainda que a decisão coincida.<br>
@@ -1027,25 +682,25 @@
     <tr><th>Conduta inadequada (não pontua o candidato)</th><td>Comportamento impróprio da examinadora identificado no áudio. É sinalizado para apuração funcional específica e <b>não impacta a pontuação do candidato</b> (constitution §V) — registrado à parte das infrações.</td></tr>
   </table>
 
-  <div class="gloss-cap">Códigos e fluxo de decisão</div>
+  <div class="gloss-cap">13.3. Códigos e fluxo de decisão</div>
   <table class="gloss">
-    <tr><th class="gm">INF-NNN</th><td>Identificador sequencial de cada infração enquadrada neste laudo (INF-001, INF-002, …), atribuído pelo motor normativo na ordem de detecção; usado para referência cruzada entre blocos.</td></tr>
+    <tr><th class="gm">INF-NNN</th><td>Identificador sequencial de cada infração enquadrada neste laudo (INF-001, INF-002, …), atribuído pelo motor normativo na ordem de detecção; usado para referência cruzada entre seções.</td></tr>
     <tr><th class="gm">VAL-LAU-AAAA-MM-HASH</th><td>Formato do código do laudo: prefixo <span class="gm">VAL-LAU</span>, ano (AAAA) e mês (MM) de referência e um <span class="gm">HASH</span> curto derivado do vídeo de origem — garante unicidade e rastreabilidade do documento.</td></tr>
     <tr><th>Comitê → Auditor → Supervisor</th><td>Fluxo de escalonamento da decisão: o <b>Comitê Val</b> (IA) produz o cálculo preliminar; o <b>Auditor</b> humano revisa as divergências e os itens escalados; o <b>Supervisor</b> profere a decisão final. Quanto maior a divergência/criticidade, mais alto o nível acionado.</td></tr>
   </table>
 
-  <div class="gloss-cap">Checklist Anexo K — os 12 critérios de conformidade (referência)</div>
+  <div class="gloss-cap">13.4. Checklist Anexo K — os 12 critérios de conformidade (referência)</div>
   <p class="lead" style="margin-bottom:7px">Critérios formais do Anexo K (TR DETRAN-SE) verificados automaticamente em todo laudo. Itens marcados
-  <span class="crit">CRÍTICO</span> que falham escalam ao Auditor. O veredito por exame (conforme / não conforme /
-  verif. humana) consta no bloco <b>Checklist Técnico — Anexo K</b>.</p>
+  "(crítico)" que falham escalam ao Auditor. O veredito por exame (conforme / não conforme / verificação
+  humana) consta na Seção 10 (Checklist Técnico — Anexo K).</p>
   <div class="ck-ref-list">
     {% for it in checklist_anexo_k.itens %}
-    <div class="ck-ref-item"><span class="n">{{ it.numero }}</span><span class="q">{{ it.pergunta }}{% if it.critico %} <span class="crit">CRÍTICO</span>{% endif %}</span></div>
+    <div class="ck-ref-item"><span class="n">{{ it.numero }}.</span>{{ it.pergunta }}{% if it.critico %} <span class="crit-flag">(crítico)</span>{% endif %}</div>
     {% endfor %}
   </div>
 
   <p class="nota">Documento de apoio técnico-regulatório. A decisão formal do exame permanece sob responsabilidade
-  da Comissão Examinadora / Auditor humano competente. Íntegro mediante conferência do hash SHA-256 declarado no Bloco 1.</p>
+  da Comissão Examinadora / Auditor humano competente. Íntegro mediante conferência do hash SHA-256 declarado na Seção 2.</p>
 </div>
 
 </body>

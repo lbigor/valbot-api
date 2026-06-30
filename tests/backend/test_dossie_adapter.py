@@ -116,5 +116,5 @@ def test_pipeline_renderiza_html(db_dossie):
     ctx = montar_laudo_pdf_view(dossie)
     html = render_html(ctx)
     assert "Maria" in html or "M***" in html  # LGPD mascara por padrão
-    assert "REGISTRADO" in html  # parecer do auditor preenchido
-    assert "REGISTRADA" in html  # decisão do supervisor preenchida
+    assert "Situação: Registrado" in html  # parecer do auditor preenchido
+    assert "Situação: Registrada" in html  # decisão do supervisor preenchida
