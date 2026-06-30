@@ -73,6 +73,43 @@ def _mascarar_nome(nome: str | None) -> str:
     return " ".join(partes)
 
 
+def _narrativa_auditor(p: dict | str | None) -> str | None:
+    """Fragmento gramatical pra conclusão a partir do parecer do Auditor.
+
+    Aceita dict (shape do `dossie_adapter`: decisao/decisao_label/resultado_final)
+    ou string livre (fixtures/dossiês legados) — sempre passa adiante algo
+    encaixável em "O Auditor, após revisão dos fatos, <fragmento>.".
+    """
+    if not p:
+        return None
+    if isinstance(p, str):
+        return p
+    resultado = p.get("resultado_final")
+    if resultado:
+        return f"considerou o candidato {resultado}"
+    return p.get("decisao_label") or p.get("decisao") or None
+
+
+def _narrativa_supervisor(d: dict | str | None) -> str | None:
+    """Fragmento gramatical pra conclusão a partir da decisão do Supervisor.
+
+    Encaixável em "O Supervisor <fragmento>.".
+    """
+    if not d:
+        return None
+    if isinstance(d, str):
+        return d
+    decisao = (d.get("decisao") or "").lower()
+    base = {
+        "homologar": "homologou o parecer do Auditor",
+        "reformar": "reformou o parecer do Auditor",
+    }.get(decisao, d.get("decisao_label") or "decidiu sobre o caso")
+    resultado = d.get("resultado_final")
+    if resultado:
+        return f"{base}, mantendo o resultado {resultado}"
+    return base
+
+
 def _classes_conduta(observacoes: list[dict] | None) -> tuple[int, list[dict]]:
     """Separa conduta inadequada (sinal de compliance, contado à parte) dos
     eventos contextuais sem enquadramento (Bloco 5/7).
@@ -352,6 +389,32 @@ def montar_laudo_pdf_view(dossie: dict, *, versao_controlada: bool = False) -> d
     # ── Bloco 7 — Detalhamento das infrações ──
     b7 = {"infracoes": infracoes, "eventos_sem_enquadramento": eventos_sem_enquadramento}
 
+    # ── Pareceres humanos (pendentes até o Auditor/Supervisor decidirem) ──
+    parecer_auditor = dossie.get("parecer_auditor") or None
+    decisao_supervisor = dossie.get("decisao_supervisor") or None
+
+    # Resultado FINAL publicado — precedência Supervisor > Auditor > Val Auditor
+    # calculado (mesma regra de `_laudo_blocos_14_2`/`cadeia_resultado.veredito_final`).
+    def _resultado_final(p: dict | str | None) -> str | None:
+        return p.get("resultado_final") if isinstance(p, dict) else None
+
+    resultado_final_humano = _resultado_final(decisao_supervisor) or _resultado_final(parecer_auditor)
+
+    # ── Conclusão textual (narrativa determinística — "laudo final") ──
+    conclusao = T.conclusao_processo(
+        codigo_laudo=b1["codigo_laudo"],
+        resultado_oficial=rof.get("decisao"),
+        resultado_calculado=rcalc.get("decisao"),
+        artigos_oficiais=artigos_oficiais,
+        artigos_calculados=artigos_calculados,
+        tipo_divergencia=tipo_div,
+        concorda_resultado=concorda_resultado,
+        tem_conduta_inadequada=tem_conduta_inadequada,
+        resultado_final_humano=resultado_final_humano,
+        parecer_auditor=_narrativa_auditor(parecer_auditor),
+        decisao_supervisor=_narrativa_supervisor(decisao_supervisor),
+    )
+
     contexto = {
         "cabecalho": {
             "titulo": "VAL AUDITOR EXAMES",
@@ -369,6 +432,9 @@ def montar_laudo_pdf_view(dossie: dict, *, versao_controlada: bool = False) -> d
         "b7_infracoes": b7,
         "b8_linha_tempo": linha_tempo,
         "checklist_anexo_k": checklist,
+        "conclusao": conclusao,
+        "parecer_auditor": parecer_auditor,
+        "decisao_supervisor": decisao_supervisor,
     }
     # integridade — hash do conteúdo (reúso do helper canônico).
     contexto["b1_identificacao"]["hash_laudo"] = hash_relatorio({"contexto": contexto})
