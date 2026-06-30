@@ -13,9 +13,11 @@
      ============================================================ */
 
   :root{
-    /* Marca — verde Val/Sankhya */
-    --g-900:#0a3d27; --g-800:#0c5234; --g-700:#0f6b42; --g-600:#138a57;
-    --g-500:#1aa066; --g-100:#e4f3ea; --g-50:#f2f9f5;
+    /* Cor PADRÃO — navy institucional (verde só como acento) */
+    --g-900:#13243a; --g-800:#1b3050; --g-700:#1f3a5f; --g-600:#2a5688;
+    --g-500:#3a6fb0; --g-100:#e7eef6; --g-50:#f3f7fb;
+    /* acento verde Val — conector/bolinhas da timeline e detalhes */
+    --accent:#22b36b; --accent-dk:#16894f;
     /* Neutros (navy/slate de apoio) */
     --ink:#16221c; --navy:#1f3148; --slate:#54616f; --muted:#8a96a3;
     --line:#dde5ea; --line-soft:#e9eef2; --paper:#ffffff; --paper-alt:#f7faf8;
@@ -27,7 +29,7 @@
     --purple:#7a3a96; --purple-bg:#f3eaf7;
     --green:#1e8449; --green-bg:#e7f4ec;
     /* carimbo de seção (tinta institucional escura) */
-    --stamp-bg:#14221c; --stamp-fg:#bfe6cf;
+    --stamp-bg:#14223a; --stamp-fg:#c2d6ef;
   }
 
   @page {
@@ -36,7 +38,7 @@
     @top-left {
       content: "VAL AUDITOR EXAMES";
       font-family: Georgia, "Times New Roman", serif; font-size: 7pt;
-      font-weight: 700; letter-spacing: .6px; color: #0f6b42;
+      font-weight: 700; letter-spacing: .6px; color: #1f3a5f;
       padding-bottom: 2mm;
     }
     @top-right {
@@ -82,14 +84,14 @@
   .cover .head-left{ flex:1; padding-right:16px; }
   .cover .eyebrow{
     font-size:6.8pt; letter-spacing:2.4px; text-transform:uppercase;
-    color:#bfe6cf; font-weight:700; margin-bottom:5px;
+    color:#c2d6ef; font-weight:700; margin-bottom:5px;
   }
   .cover .brand{
     font-family: Georgia,"Times New Roman",serif; font-size:23pt; font-weight:700;
     letter-spacing:.4px; line-height:1.05;
   }
-  .cover .sub{ font-size:8.6pt; color:#d8f0e2; margin-top:6px; max-width:96%; line-height:1.4; }
-  .cover .ref{ font-size:7.4pt; color:#bfe6cf; margin-top:9px; letter-spacing:.2px; }
+  .cover .sub{ font-size:8.6pt; color:#dce8f6; margin-top:6px; max-width:96%; line-height:1.4; }
+  .cover .ref{ font-size:7.4pt; color:#c2d6ef; margin-top:9px; letter-spacing:.2px; }
   /* coluna direita: selo circular + confidencial + estrutura */
   .cover .head-right{
     flex:0 0 122px; text-align:center; padding-left:16px; margin-right:6px;
@@ -98,18 +100,18 @@
   }
   .seal{
     width:62px; height:62px; border-radius:50%;
-    border:2px solid #bfe6cf; box-shadow: inset 0 0 0 3px rgba(255,255,255,.08);
+    border:2px solid #c2d6ef; box-shadow: inset 0 0 0 3px rgba(255,255,255,.08);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     margin-bottom:8px;
   }
   .seal .sg{ font-family:Georgia,serif; font-size:15pt; font-weight:700; color:#fff; line-height:1; }
-  .seal .ss{ font-size:5pt; letter-spacing:1.8px; color:#bfe6cf; margin-top:2px; text-transform:uppercase; }
+  .seal .ss{ font-size:5pt; letter-spacing:1.8px; color:#c2d6ef; margin-top:2px; text-transform:uppercase; }
   .cover .pill{
-    display:inline-block; border:1.2px solid #bfe6cf; color:#fff;
+    display:inline-block; border:1.2px solid #c2d6ef; color:#fff;
     font-size:6.4pt; font-weight:700; letter-spacing:1.6px; text-transform:uppercase;
     padding:3px 9px; border-radius:20px; background:rgba(255,255,255,.08);
   }
-  .cover .struct{ font-size:6.6pt; color:#bfe6cf; margin-top:7px; letter-spacing:.4px; }
+  .cover .struct{ font-size:6.6pt; color:#c2d6ef; margin-top:7px; letter-spacing:.4px; }
 
   /* faixa de metadados do documento (código/versão/emitido/processamento) */
   .docmeta{
@@ -367,6 +369,34 @@
     border-top:1px solid var(--line-soft); padding-top:7px; }
   .pb{ page-break-before: always; }
   .keep{ page-break-inside: avoid; }
+
+  /* ---------- RESUMO: cadeia de avaliação (timeline da 1ª página) ---------- */
+  .summary-head{ margin:13px 0 4px 0; display:flex; align-items:baseline; gap:10px; }
+  .summary-head .t{ font-family:Georgia,"Times New Roman",serif; font-size:14pt; font-weight:700; color:var(--g-800); }
+  .summary-head .s{ font-size:7.4pt; color:var(--slate); }
+  .sum-outcome{ border:1px solid var(--line); border-left:5px solid var(--amber); border-radius:8px;
+    background:var(--g-50); padding:7px 13px; margin:5px 0 12px 0; font-size:8.6pt; color:var(--navy); line-height:1.4; }
+  .sum-outcome b{ color:var(--g-800); }
+  .evchain{ position:relative; margin:2px 0 4px 0; padding-left:28px; }
+  .evchain::before{ content:""; position:absolute; left:8px; top:8px; bottom:8px; width:3px;
+    background:var(--accent); border-radius:2px; }
+  .evnode{ position:relative; margin:0 0 8px 0; page-break-inside:avoid; }
+  .evnode::before{ content:""; position:absolute; left:-24px; top:9px; width:12px; height:12px;
+    background:var(--accent); border:2.5px solid var(--paper); border-radius:50%;
+    box-shadow:0 0 0 1.5px var(--accent-dk); }
+  .evcard{ border:1px solid var(--line); border-radius:9px; background:var(--paper); padding:8px 12px; }
+  .evcard .top{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+  .evcard .role{ font-weight:700; color:var(--g-800); font-size:9.2pt; }
+  .evcard .who{ font-size:7.9pt; color:var(--slate); margin-top:1px; }
+  .evcard .meta{ margin-top:5px; display:flex; gap:16px; flex-wrap:wrap; font-size:8pt; color:var(--navy); }
+  .evcard .meta .k{ font-size:6.2pt; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700; }
+  .evcard .meta .dt{ font-family:"Courier New",monospace; color:var(--navy); font-weight:700; }
+  .res-badge{ display:inline-block; font-size:7.4pt; font-weight:800; letter-spacing:.3px;
+    padding:3px 9px; border-radius:5px; white-space:nowrap; }
+  .res-badge.rep{ background:var(--red-bg); color:var(--red); border:1px solid var(--red-bd); }
+  .res-badge.div{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd); }
+  .res-badge.wait{ background:#eef1f4; color:var(--slate); border:1px solid var(--line); }
+  .res-badge.ok{ background:var(--green-bg); color:var(--green); border:1px solid #bfe0c9; }
 </style>
 </head>
 <body>
@@ -393,6 +423,82 @@
   <div class="cell"><div class="k">Emitido em</div><div class="v">{{ b1_identificacao.emitido_em }}</div></div>
   <div class="cell"><div class="k">Processamento</div><div class="v">{{ b1_identificacao.tempo_processamento }}</div></div>
 </div>
+
+{# ============ RESUMO — CADEIA DE AVALIAÇÃO (primeira página) ============ #}
+<div class="summary-head">
+  <span class="t">Resumo da Avaliação</span>
+  <span class="s">Cadeia de decisão do processo — partes, datas e resultados</span>
+</div>
+<div class="sum-outcome">
+  Resultado consolidado: <b>{{ b2_sumario.resultado_calculado or '—' }}</b> ·
+  {% if b2_sumario.rotulo_divergencia == 'SEM DIVERGÊNCIA' %}sem divergência entre Comissão e Val Auditor{% else %}<b>Divergência {{ b2_sumario.rotulo_divergencia }}</b> entre a Comissão Examinadora e o Val Auditor{% endif %} ·
+  encaminhamento: {{ b2_sumario.encaminhamento.fluxo }}.
+</div>
+<div class="evchain">
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Comissão Examinadora</div>
+        <div class="who">{{ b3_completa.examinador.nome }} · {{ b3_completa.examinador.matricula }} · {{ b3_completa.examinador.comissao }}</div></div>
+      <span class="res-badge rep">Oficial: {{ b2_sumario.resultado_oficial or '—' }}</span>
+    </div>
+    <div class="meta">
+      <span><span class="k">Registrado em</span><br><span class="dt">{{ b4_resultado_oficial.registrado_em }}</span></span>
+      <span><span class="k">Pontuação atribuída</span><br>{{ b4_resultado_oficial.pontuacao }}</span>
+    </div>
+  </div></div>
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Val Auditor — Motor de Detecção (IA)</div>
+        <div class="who">{{ b1_identificacao.modelo_ia }}</div></div>
+      <span class="res-badge rep">Calculado: {{ b2_sumario.resultado_calculado or '—' }}</span>
+    </div>
+    <div class="meta">
+      <span><span class="k">Pontuação calculada</span><br>{{ b2_sumario.pontuacao_calculada if b2_sumario.pontuacao_calculada is not none else '—' }} / limite {{ b2_sumario.limite }}</span>
+      <span><span class="k">Confiança agregada</span><br>{{ b5_resultado_calculado.confianca_agregada }}</span>
+      <span><span class="k">Infrações detectadas</span><br>{{ b5_resultado_calculado.num_infracoes }}</span>
+    </div>
+  </div></div>
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Comitê Val (IA)</div>
+        <div class="who">{{ b1_identificacao.modelo_comite }}</div></div>
+      <span class="res-badge div">{{ b6_divergencia.rotulo }}</span>
+    </div>
+    <div class="meta">
+      <span><span class="k">Atuação</span><br>Classificação e contraditório técnico da divergência</span>
+    </div>
+  </div></div>
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Auditor — revisão humana</div>
+        <div class="who">{{ b2_sumario.encaminhamento.fluxo }}</div></div>
+      <span class="res-badge wait">Aguardando parecer</span>
+    </div>
+    <div class="meta">
+      <span><span class="k">Prioridade</span><br>{{ b2_sumario.encaminhamento.prioridade }}</span>
+      <span><span class="k">SLA recomendado</span><br>{{ b2_sumario.encaminhamento.sla }}</span>
+    </div>
+  </div></div>
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Supervisor — decisão final</div>
+        <div class="who">Homologação do parecer do Auditor</div></div>
+      <span class="res-badge wait">Aguardando decisão</span>
+    </div>
+  </div></div>
+  <div class="evnode"><div class="evcard">
+    <div class="top">
+      <div><div class="role">Emissão do Laudo</div>
+        <div class="who">{{ b1_identificacao.versao }} · {{ b1_identificacao.assinatura }}</div></div>
+      <span class="res-badge ok">Emitido</span>
+    </div>
+    <div class="meta">
+      <span><span class="k">Emitido em</span><br><span class="dt">{{ b1_identificacao.emitido_em }}</span></span>
+      <span><span class="k">Código do laudo</span><br><span class="dt">{{ b1_identificacao.codigo_laudo }}</span></span>
+    </div>
+  </div></div>
+</div>
+<div class="pb"></div>
 
 {# ============ BLOCO 1 — IDENTIFICAÇÃO DO LAUDO ============ #}
 <div class="block">
