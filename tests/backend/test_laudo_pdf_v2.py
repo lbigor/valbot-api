@@ -176,21 +176,24 @@ def test_checklist_critico_escala():
 # ── Render HTML (sem depender de WeasyPrint) ──
 
 
-def test_render_html_tem_8_blocos(dossie):
+def test_render_html_tem_todos_os_blocos(dossie):
     from src.reporting.render_laudo_v2 import render_html
 
     html = render_html(montar_laudo_pdf_view(dossie))
+    # Laudo v2.0 redesenhado: títulos de bloco (8 blocos canônicos + Anexo K + Glossário)
     for titulo in (
-        "BLOCO 1",
-        "BLOCO 2",
-        "BLOCO 3",
-        "BLOCO 4",
-        "BLOCO 5",
-        "BLOCO 6",
-        "BLOCO 7",
-        "BLOCO 8",
+        "Identificação do Laudo",
+        "Sumário Executivo",
+        "Identificação Completa",
+        "Resultado Oficial Detalhado",
+        "Resultado Calculado pelo Val Auditor",
+        "Análise de Divergência",
+        "Detalhamento das Infrações",
+        "Linha do Tempo do Exame",
+        "Checklist Técnico — Anexo K",
+        "Glossário e Notas Técnicas",
     ):
-        assert titulo in html
+        assert titulo in html, f"bloco ausente no HTML: {titulo}"
     # transcrição literal de áudio entre aspas presente no corpo
     assert "pelo amor de Deus" in html
     assert "Estrutura v2.0" in html
