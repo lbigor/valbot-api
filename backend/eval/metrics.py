@@ -17,6 +17,53 @@ def classificar(houve_pred: bool, houve_gab: bool) -> str:
     return "TN"
 
 
+def pred_no_limiar(janelas: list[dict], limiar: float) -> bool:
+    """Re-deriva o veredito do detector a um dado limiar de confiança.
+
+    Espelha core.agregar_janelas SEM rede: houve_208 = existe janela positiva
+    com confiança >= limiar. Permite varrer limiares pós-hoc sobre janelas já
+    gravadas (uma run do Vertex → curva inteira).
+    """
+    return any(
+        j.get("houve_208") and float(j.get("confianca") or 0.0) >= limiar for j in (janelas or [])
+    )
+
+
+def sweep_limiar(resultados: list[dict], limiares: list[float] | None = None) -> list[dict]:
+    """Curva recall×precisão×custo por limiar de confiança, pós-hoc.
+
+    Reusa as ``janelas`` gravadas em cada resultado (sem re-chamar o detector).
+    Itens com erro (sem ``janelas`` e sem ``pred``) entram só no custo. Devolve
+    uma lista ordenada por limiar — o ponto de operação a escolher na calibração.
+    """
+    if limiares is None:
+        limiares = [round(x / 10, 1) for x in range(0, 10)]  # 0.0..0.9
+    com_janelas = [r for r in resultados if "janelas" in r and "gab" in r]
+    saida = []
+    for lim in sorted(set(limiares)):
+        derivados = [
+            {
+                "gab": r["gab"],
+                "pred": pred_no_limiar(r["janelas"], lim),
+                "custo_usd": r.get("custo_usd"),
+            }
+            for r in com_janelas
+        ]
+        m = agregar_metricas(derivados)
+        saida.append(
+            {
+                "limiar": lim,
+                "TP": m["TP"],
+                "FP": m["FP"],
+                "FN": m["FN"],
+                "TN": m["TN"],
+                "recall": m["recall"],
+                "precision": m["precision"],
+            }
+        )
+    return saida
+
+
 def agregar_metricas(resultados: list[dict]) -> dict:
     """Recall, precisão, contagens e custo a partir de uma lista de resultados.
 

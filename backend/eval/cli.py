@@ -29,11 +29,18 @@ def avaliar(case_records, **det_kwargs) -> dict:
             item["pred"] = res.houve_208
             item["custo_usd"] = res.custo_usd
             item["versao"] = res.versao
+            # janelas brutas (houve_208/confianca/estado_visto/evidencia/ts_seg) —
+            # insumo da calibração: permite varrer o limiar pós-hoc sem re-rodar Vertex.
+            item["janelas"] = res.detalhe.get("janelas", [])
         except Exception as e:  # nunca derruba o lote
             item["erro"] = f"{type(e).__name__}: {e}"
-        print("CASO " + json.dumps(item, ensure_ascii=False, default=str)[:300], flush=True)
+        print("CASO " + json.dumps(item, ensure_ascii=False, default=str)[:600], flush=True)
         resultados.append(item)
-    return {"resultados": resultados, "metricas": _metrics.agregar_metricas(resultados)}
+    return {
+        "resultados": resultados,
+        "metricas": _metrics.agregar_metricas(resultados),
+        "sweep_limiar": _metrics.sweep_limiar(resultados),
+    }
 
 
 def main() -> None:
@@ -53,6 +60,9 @@ def main() -> None:
 
     report = avaliar(crs, max_candidatos=args.max_candidatos)
     print("METRICAS " + json.dumps(report["metricas"], ensure_ascii=False), flush=True)
+    # curva de calibração: recall×precisão por limiar de confiança (pós-hoc, sem rede)
+    for ponto in report["sweep_limiar"]:
+        print("SWEEP " + json.dumps(ponto, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

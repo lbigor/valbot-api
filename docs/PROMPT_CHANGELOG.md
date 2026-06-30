@@ -33,3 +33,20 @@ fps não é a alavanca (resolução temporal, não espacial); recortar a janela 
   (`VALBOT_RUN_VERTEX=1`, marker `vertex`).
 - **Gate antes de ativar:** calibrar recall × FP × custo na amostra de FN de 208 e só
   então ligar via flag `VALBOT_ART208_DETECTOR` (default off).
+
+---
+
+## Harness de avaliação (`backend/eval/`) — tooling, sem versão de detector
+
+### 2026-06-30 — calibração data-driven (sweep de limiar pós-hoc)
+Primeira avaliação real (18 casos válidos) deu recall 81,8% / precisão 75% / $0,024 —
+mas o harness só gravava o `pred` booleano, **descartando as confianças por janela** do
+estágio 2. Sem elas a calibração do gate acima viraria re-run do Vertex (lento e $$).
+- `cli.avaliar` agora persiste `res.detalhe["janelas"]` (houve_208/confiança/estado/
+  evidência/ts) em cada caso.
+- `metrics.sweep_limiar` re-deriva recall×precisão×FP×FN para uma grade de limiares de
+  confiança **sobre as janelas já gravadas** — uma run do Vertex rende a curva inteira,
+  sem rede. `pred_no_limiar` espelha `core.agregar_janelas` (mesma regra de decisão).
+- CLI imprime linhas `SWEEP {...}` após `METRICAS`. Testes unitários mockados no CI.
+- Próximo: re-rodar a avaliação dos 208 (opt-in) → ler o `SWEEP` → escolher o
+  `limiar_confianca` que zera os 3 FP sem derrubar TP → fixar como default do detector.

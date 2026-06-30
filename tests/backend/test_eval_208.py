@@ -68,6 +68,36 @@ def test_agregar_metricas():
     assert m["custo_total_usd"] == 0.13
 
 
+# ---------------- calibração: sweep de limiar pós-hoc ----------------
+def test_pred_no_limiar():
+    janelas = [
+        {"houve_208": True, "confianca": 0.6},
+        {"houve_208": True, "confianca": 0.3},
+        {"houve_208": False, "confianca": 0.9},
+    ]
+    assert metrics.pred_no_limiar(janelas, 0.0) is True  # qualquer positiva
+    assert metrics.pred_no_limiar(janelas, 0.5) is True  # a de 0.6 sobrevive
+    assert metrics.pred_no_limiar(janelas, 0.7) is False  # nenhuma positiva >=0.7
+    assert metrics.pred_no_limiar([], 0.0) is False
+    # confiança ausente -> 0.0 (não vaza positivo num limiar > 0)
+    assert metrics.pred_no_limiar([{"houve_208": True}], 0.1) is False
+
+
+def test_sweep_limiar_derruba_fp_sem_perder_tp():
+    # FP com confiança baixa (0.4) deve cair antes do TP (confiança 0.8).
+    resultados = [
+        {"gab": True, "janelas": [{"houve_208": True, "confianca": 0.8}], "custo_usd": 0.02},
+        {"gab": False, "janelas": [{"houve_208": True, "confianca": 0.4}], "custo_usd": 0.02},
+        {"gab": False, "janelas": [{"houve_208": False, "confianca": 0.0}], "custo_usd": 0.01},
+        {"erro": "x", "custo_usd": 0.01},  # ignorado no sweep (sem janelas)
+    ]
+    curva = metrics.sweep_limiar(resultados, [0.0, 0.5, 0.9])
+    por_lim = {p["limiar"]: p for p in curva}
+    assert por_lim[0.0]["TP"] == 1 and por_lim[0.0]["FP"] == 1  # baseline: 1 TP, 1 FP
+    assert por_lim[0.5]["TP"] == 1 and por_lim[0.5]["FP"] == 0  # 0.5 mata o FP, mantém o TP
+    assert por_lim[0.9]["TP"] == 0  # 0.9 alto demais: perde o TP também
+
+
 # ---------------- prompts versionados ----------------
 def test_prompts_versionados_presentes():
     assert prompts.DETECTOR_208_VERSION.count(".") == 2  # SemVer X.Y.Z
