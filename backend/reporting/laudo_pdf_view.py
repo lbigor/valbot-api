@@ -352,6 +352,26 @@ def montar_laudo_pdf_view(dossie: dict, *, versao_controlada: bool = False) -> d
     # ── Bloco 7 — Detalhamento das infrações ──
     b7 = {"infracoes": infracoes, "eventos_sem_enquadramento": eventos_sem_enquadramento}
 
+    # ── Pareceres humanos (pendentes até o Auditor/Supervisor decidirem) ──
+    parecer_auditor = dossie.get("parecer_auditor") or None
+    decisao_supervisor = dossie.get("decisao_supervisor") or None
+
+    # ── Conclusão textual (narrativa determinística — "laudo final") ──
+    conclusao = T.conclusao_processo(
+        codigo_laudo=b1["codigo_laudo"],
+        resultado_oficial=rof.get("decisao"),
+        resultado_calculado=rcalc.get("decisao"),
+        artigos_oficiais=artigos_oficiais,
+        artigos_calculados=artigos_calculados,
+        tipo_divergencia=tipo_div,
+        concorda_resultado=concorda_resultado,
+        tem_conduta_inadequada=tem_conduta_inadequada,
+        parecer_auditor=(parecer_auditor or {}).get("decisao") if isinstance(parecer_auditor, dict) else parecer_auditor,
+        decisao_supervisor=(decisao_supervisor or {}).get("decisao")
+        if isinstance(decisao_supervisor, dict)
+        else decisao_supervisor,
+    )
+
     contexto = {
         "cabecalho": {
             "titulo": "VAL AUDITOR EXAMES",
@@ -369,6 +389,9 @@ def montar_laudo_pdf_view(dossie: dict, *, versao_controlada: bool = False) -> d
         "b7_infracoes": b7,
         "b8_linha_tempo": linha_tempo,
         "checklist_anexo_k": checklist,
+        "conclusao": conclusao,
+        "parecer_auditor": parecer_auditor,
+        "decisao_supervisor": decisao_supervisor,
     }
     # integridade — hash do conteúdo (reúso do helper canônico).
     contexto["b1_identificacao"]["hash_laudo"] = hash_relatorio({"contexto": contexto})

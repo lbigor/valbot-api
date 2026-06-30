@@ -422,6 +422,27 @@
   .topbar .sub{ font-size:8pt; color:#c7d6e8; margin-top:2px; }
   .topbar .right{ text-align:right; font-size:7.5pt; color:#c7d6e8; }
   .topbar .right .conf{ font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:1px; }
+
+  /* ---------- PARECERES (Auditor / Supervisor) + CONCLUSÃO ---------- */
+  .parecer{ border:1px solid var(--line); border-radius:9px; margin:9px 0; overflow:hidden; page-break-inside:avoid; }
+  .parecer .ph{ display:flex; justify-content:space-between; align-items:center;
+    padding:7px 12px; background:var(--g-50); border-bottom:1px solid var(--line); }
+  .parecer .ph .nm{ font-weight:700; color:var(--g-800); font-size:9.3pt; }
+  .parecer .ph .st{ font-size:6.8pt; font-weight:800; letter-spacing:.4px; padding:2px 9px; border-radius:5px; }
+  .parecer .ph .st.wait{ background:#eef1f4; color:var(--slate); border:1px solid var(--line); }
+  .parecer .ph .st.done{ background:var(--green-bg); color:var(--green); border:1px solid #bfe0c9; }
+  .parecer .pbody{ padding:9px 12px; }
+  .parecer .fld{ margin:7px 0; }
+  .parecer .fld .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); font-weight:700; }
+  .parecer .fld .v{ font-size:8.6pt; color:var(--navy); margin-top:2px; }
+  .parecer .blank{ border-bottom:1px dashed var(--line); height:13px; margin-top:4px; }
+  .parecer .meta-row{ display:flex; gap:20px; margin-top:9px; }
+  .parecer .meta-row > span{ flex:1; }
+  .conclusao{ border:1px solid var(--line); border-left:5px solid var(--g-700); border-radius:9px;
+    background:var(--g-50); padding:12px 15px; margin:6px 0; page-break-inside:avoid; }
+  .conclusao p{ font-size:9.1pt; color:var(--ink); line-height:1.55; margin:0 0 7px 0; text-align:justify; }
+  .conclusao p:last-child{ margin-bottom:0; font-weight:700; color:var(--g-800);
+    border-top:1px solid var(--line); padding-top:8px; margin-top:9px; }
 </style>
 </head>
 <body>
@@ -881,6 +902,84 @@
   </table>
   <p class="nota">Anexo K — checklist de conformidade procedimental do exame prático. Itens críticos não atendidos
   acionam revisão por auditor humano antes da consolidação do resultado.</p>
+</div>
+
+{# ============ BLOCO — ENCAMINHAMENTO E PARECERES (Auditor / Supervisor) ============ #}
+<div class="pb"></div>
+<div class="block">
+  <div class="block-head">
+    <span class="num">P</span><span class="ttl">Encaminhamento e Pareceres</span>
+    <span class="stamp">Revisão Humana · Fluxo 4 Níveis</span>
+  </div>
+  <hr class="rule">
+  <table class="kv">
+    <tr><th>Fluxo de encaminhamento</th><td>{{ b2_sumario.encaminhamento.fluxo }}</td></tr>
+    <tr><th>Razão</th><td>{{ b2_sumario.encaminhamento.razao }}</td></tr>
+    <tr><th>Prioridade</th><td>{{ b2_sumario.encaminhamento.prioridade }}</td></tr>
+    <tr><th>SLA recomendado</th><td>{{ b2_sumario.encaminhamento.sla }}</td></tr>
+  </table>
+
+  <div class="parecer">
+    <div class="ph"><span class="nm">Parecer do Auditor — revisão humana</span>
+      <span class="st {{ 'done' if parecer_auditor else 'wait' }}">{{ 'REGISTRADO' if parecer_auditor else 'AGUARDANDO' }}</span></div>
+    <div class="pbody">
+      {% if parecer_auditor %}
+      <div class="fld"><span class="k">Decisão (manter / alterar / arquivar)</span><div class="v">{{ parecer_auditor.decisao }}</div></div>
+      <div class="fld"><span class="k">Justificativa técnica e referência MBEDV</span><div class="v">{{ parecer_auditor.justificativa }}</div></div>
+      <div class="meta-row">
+        <span><span class="k">Auditor responsável</span><div class="v">{{ parecer_auditor.responsavel }}</div></span>
+        <span><span class="k">Data/hora do parecer</span><div class="v">{{ parecer_auditor.data }}</div></span>
+        <span><span class="k">Assinatura digital</span><div class="v">{{ parecer_auditor.assinatura }}</div></span>
+      </div>
+      {% else %}
+      <div class="fld"><span class="k">Decisão (manter / alterar / arquivar)</span><div class="blank"></div></div>
+      <div class="fld"><span class="k">Justificativa técnica e referência MBEDV</span><div class="blank"></div><div class="blank"></div></div>
+      <div class="meta-row">
+        <span><span class="k">Auditor responsável</span><div class="blank"></div></span>
+        <span><span class="k">Data/hora do parecer</span><div class="blank"></div></span>
+        <span><span class="k">Assinatura digital</span><div class="blank"></div></span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="parecer">
+    <div class="ph"><span class="nm">Decisão do Supervisor — decisão final</span>
+      <span class="st {{ 'done' if decisao_supervisor else 'wait' }}">{{ 'REGISTRADA' if decisao_supervisor else 'AGUARDANDO' }}</span></div>
+    <div class="pbody">
+      {% if decisao_supervisor %}
+      <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="v">{{ decisao_supervisor.decisao }}</div></div>
+      <div class="fld"><span class="k">Justificativa e concordância/divergência com o Auditor</span><div class="v">{{ decisao_supervisor.justificativa }}</div></div>
+      <div class="meta-row">
+        <span><span class="k">Supervisor responsável</span><div class="v">{{ decisao_supervisor.responsavel }}</div></span>
+        <span><span class="k">Data/hora da decisão</span><div class="v">{{ decisao_supervisor.data }}</div></span>
+        <span><span class="k">Assinatura digital</span><div class="v">{{ decisao_supervisor.assinatura }}</div></span>
+      </div>
+      {% else %}
+      <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="blank"></div></div>
+      <div class="fld"><span class="k">Justificativa e concordância/divergência com o Auditor</span><div class="blank"></div><div class="blank"></div></div>
+      <div class="meta-row">
+        <span><span class="k">Supervisor responsável</span><div class="blank"></div></span>
+        <span><span class="k">Data/hora da decisão</span><div class="blank"></div></span>
+        <span><span class="k">Assinatura digital</span><div class="blank"></div></span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ============ BLOCO — CONCLUSÃO (laudo conclusivo, narrativa determinística) ============ #}
+<div class="block">
+  <div class="block-head">
+    <span class="num">C</span><span class="ttl">Conclusão — Parecer Técnico Final</span>
+    <span class="stamp">Laudo Conclusivo</span>
+  </div>
+  <hr class="rule">
+  <div class="conclusao">
+    {% for p in conclusao %}<p>{{ p }}</p>{% endfor %}
+  </div>
+  <p class="nota">Síntese textual determinística do processo, gerada por modelo de frases fixo (sem prosa por IA),
+  reproduzível byte a byte. Não substitui a decisão formal da Comissão Examinadora / Auditor / Supervisor competentes.</p>
 </div>
 
 {# ============ BLOCO — GLOSSÁRIO E NOTAS TÉCNICAS (estático / determinístico) ============ #}

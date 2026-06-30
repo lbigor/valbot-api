@@ -182,3 +182,93 @@ def frase_excecao(*, ficha: str | None, excecao_texto: str | None, resultado: st
             f"base na evidência do exame."
         )
     return f"{ficha_ref}: nenhuma exceção aplicável foi identificada para esta conduta."
+
+
+def conclusao_processo(
+    *,
+    codigo_laudo: str,
+    resultado_oficial: str | None,
+    resultado_calculado: str | None,
+    artigos_oficiais: list[str] | None = None,
+    artigos_calculados: list[str] | None = None,
+    tipo_divergencia: str | None = None,
+    concorda_resultado: bool = True,
+    tem_conduta_inadequada: bool = False,
+    parecer_auditor: str | None = None,
+    decisao_supervisor: str | None = None,
+) -> list[str]:
+    """Conclusão textual (narrativa) do processo — o "laudo final" conclusivo.
+
+    Texto-MODELO determinístico, ramificado pelo tipo de divergência e pelo estado
+    das etapas humanas (Auditor/Supervisor pendentes ou concluídos). Mesma entrada →
+    mesmo texto (constitution §III/§VII): nenhuma prosa gerada por IA. Retorna a lista
+    de parágrafos.
+    """
+    oficial = (resultado_oficial or "—").upper()
+    calc = (resultado_calculado or "—").upper()
+    art_of = _join_artigos(artigos_oficiais)
+    art_va = _join_artigos(artigos_calculados)
+    sem_div = (not tipo_divergencia) or tipo_divergencia == "sem_divergencia"
+    div_resultado = (tipo_divergencia or "").startswith("1") or "resultado" in (tipo_divergencia or "")
+
+    paras: list[str] = []
+
+    # 1 — recebimento + apontamento da Comissão + análise do Val Auditor
+    p1 = f"Exame {codigo_laudo} recebido para auditoria técnica. "
+    p1 += f"A Comissão Examinadora registrou o resultado {oficial}"
+    p1 += f", com enquadramento em {art_of}. " if art_of != "—" else ". "
+    p1 += f"Em análise automatizada, o Val Auditor apurou {calc}"
+    p1 += f", identificando {art_va}." if art_va != "—" else "."
+    paras.append(p1.strip())
+
+    # 2 — atuação do Comitê Val + divergência/concordância
+    if sem_div:
+        p2 = (
+            f"O Comitê Val corroborou a apuração: a Comissão Examinadora e o Val Auditor "
+            f"convergem no resultado ({oficial}), sem divergência de fundamentação."
+        )
+    elif div_resultado:
+        p2 = (
+            f"O Comitê Val identificou divergência de RESULTADO entre a Comissão ({oficial}) "
+            f"e o Val Auditor ({calc}), reforçou os apontamentos do Val Auditor e manteve o "
+            f"resultado apurado, gerando discordância com o apontamento do examinador."
+        )
+    else:
+        p2 = (
+            f"A Comissão Examinadora e o Val Auditor convergem no resultado ({oficial}), "
+            f"divergindo na fundamentação ({art_of} × {art_va}). O Comitê Val classificou a "
+            f"ocorrência como divergência de enquadramento/pontuação, reforçou os apontamentos "
+            f"do Val Auditor e manteve o resultado apurado."
+        )
+    if tem_conduta_inadequada:
+        p2 += (
+            " Foi sinalizada conduta inadequada da examinadora no áudio do exame, encaminhada "
+            "para apuração específica, sem impacto na pontuação do candidato."
+        )
+    paras.append(p2)
+
+    # 3 — etapas humanas (Auditor → Supervisor)
+    if parecer_auditor:
+        p3 = f"O Auditor, após revisão dos fatos, {parecer_auditor.rstrip('. ')}. "
+    else:
+        p3 = "O caso segue encaminhado ao Auditor para parecer técnico (aguardando revisão humana). "
+    if decisao_supervisor:
+        p3 += f"{decisao_supervisor.rstrip('. ')}, com homologação da Supervisão."
+    else:
+        p3 += "A decisão final do Supervisor permanece pendente de homologação."
+    paras.append(p3.strip())
+
+    # 4 — conclusão baseada nas evidências
+    if parecer_auditor and decisao_supervisor:
+        paras.append(
+            f"Baseado nas evidências técnicas reunidas e confirmado pelo Supervisor, o "
+            f"candidato deve ser considerado {calc}."
+        )
+    else:
+        paras.append(
+            f"Baseado nas evidências técnicas reunidas, o Val Auditor mantém o resultado "
+            f"{calc}; a decisão formal sobre o candidato fica condicionada ao parecer do "
+            f"Auditor e à homologação do Supervisor, nos termos do Art. 43, §1º da Resolução "
+            f"CONTRAN nº 1.020/2025."
+        )
+    return paras

@@ -118,6 +118,23 @@ def test_timeline_ordenada_com_inadequado(dossie):
     assert any(e["tipo"] == "Anotação TPA" for e in eventos)
 
 
+def test_conclusao_textual_e_deterministica(dossie):
+    v = montar_laudo_pdf_view(dossie)
+    concl = v["conclusao"]
+    assert isinstance(concl, list) and len(concl) >= 3
+    texto = " ".join(concl)
+    # narrativa cobre as etapas do processo, com o resultado real
+    assert v["b1_identificacao"]["codigo_laudo"] in texto
+    assert "Comissão Examinadora" in texto and "Val Auditor" in texto and "Comitê Val" in texto
+    assert "REPROVADO" in texto
+    # etapas humanas pendentes neste fixture (sem parecer/decisão no dossiê)
+    assert v["parecer_auditor"] is None and v["decisao_supervisor"] is None
+    assert "Auditor" in texto and "Supervisor" in texto
+    # determinística + sem jargão interno vazado no documento oficial
+    assert montar_laudo_pdf_view(dossie)["conclusao"] == concl
+    assert "constitution" not in texto
+
+
 # ── Regras puras determinísticas ──
 
 
