@@ -81,7 +81,7 @@
   table.meta .v{ font-weight:700; margin-top:1px; }
 
   /* ---------- TÍTULOS DE SEÇÃO NUMERADOS (sem badge/carimbo) ---------- */
-  .sec{ margin-top:17px; }
+  .sec{ margin-top:22px; }
   .sec-h{
     font-size:12.5pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
     border-bottom:1.4px solid var(--line); padding-bottom:4px; margin-bottom:9px;
@@ -96,34 +96,43 @@
   .cols{ display:flex; gap:14px; }
   .cols > div{ flex:1; min-width:0; }
 
-  /* ---------- TABELA DOCUMENTAL — base única (chave/valor e grid) ---------- */
-  table.kv{ width:100%; border-collapse:collapse; font-size:8.8pt; margin:0 0 4px 0; }
+  /* ---------- TABELA DOCUMENTAL — base única (chave/valor e grid) ----------
+     Convenção de "tabela de três linhas" (régua superior + cabeçalho + régua
+     inferior; corpo só com régua horizontal fina entre linhas) — reduz o
+     ruído de grade completa e deixa claro onde a tabela começa/termina. */
+  table.kv{ width:100%; border-collapse:collapse; font-size:8.8pt; margin:2px 0 10px 0;
+    border-top:1.4px solid var(--line); border-bottom:1.4px solid var(--line); }
   table.kv th{
-    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
-    font-weight:700; width:32%; padding:6px 10px; vertical-align:top; font-size:8.5pt;
+    text-align:left; font-weight:700; width:32%; padding:6px 12px 6px 0;
+    vertical-align:top; font-size:8.5pt; border-bottom:1px solid var(--line-soft); color:var(--gray);
   }
-  table.kv td{ border:1px solid var(--line); padding:6px 10px; vertical-align:top; }
+  table.kv td{ padding:6px 0 6px 12px; vertical-align:top; border-bottom:1px solid var(--line-soft); border-left:1px solid var(--line-soft); }
+  table.kv tr:last-child th, table.kv tr:last-child td{ border-bottom:none; }
 
-  table.grid{ width:100%; border-collapse:collapse; font-size:8.4pt; margin:4px 0 10px 0; }
+  table.grid{ width:100%; border-collapse:collapse; font-size:8.4pt; margin:4px 0 13px 0;
+    border-top:1.4px solid var(--line); border-bottom:1.4px solid var(--line); }
   table.grid th{
-    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
-    padding:6px 9px; font-size:7.8pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
+    text-align:left; padding:6px 9px 5px 9px; font-size:7.8pt; font-weight:700;
+    text-transform:uppercase; letter-spacing:.3px; border-bottom:1.2px solid var(--line);
   }
-  table.grid td{ border:1px solid var(--line); padding:5px 9px; vertical-align:top; }
+  table.grid td{ padding:5px 9px; vertical-align:top; border-bottom:1px solid var(--line-soft); }
+  table.grid tbody tr:last-child td{ border-bottom:none; }
   table.grid tr, table.kv tr { page-break-inside:avoid; }
   td.t-mono, .mono-cell{ font-family:"Courier New",monospace; font-size:7.8pt; white-space:nowrap; }
 
   /* ---------- 1.1 CADEIA DE DECISÃO (tabela, não timeline gráfica) ---------- */
-  table.cadeia{ width:100%; border-collapse:collapse; font-size:8.6pt; margin:6px 0 4px 0; }
+  table.cadeia{ width:100%; border-collapse:collapse; font-size:8.6pt; margin:6px 0 6px 0;
+    border-top:1.4px solid var(--line); border-bottom:1.4px solid var(--line); }
   table.cadeia th{
-    border:1px solid var(--line); background:var(--fill-soft); text-align:left;
-    padding:6px 9px; font-size:7.8pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px;
+    text-align:left; padding:6px 9px; font-size:7.8pt; font-weight:700;
+    text-transform:uppercase; letter-spacing:.3px; border-bottom:1.2px solid var(--line);
   }
-  table.cadeia td{ border:1px solid var(--line); padding:6px 9px; vertical-align:top; }
-  table.cadeia td.n{ text-align:center; font-weight:700; width:24px; }
+  table.cadeia td{ padding:7px 9px; vertical-align:top; border-bottom:1px solid var(--line-soft); }
+  table.cadeia tbody tr:last-child td{ border-bottom:none; }
+  table.cadeia td.n{ text-align:center; font-weight:700; width:24px; color:var(--gray); }
   table.cadeia td.res{ font-weight:700; white-space:nowrap; }
   table.cadeia td.dt{ font-family:"Courier New",monospace; font-size:7.8pt; white-space:nowrap; }
-  .footnote{ font-size:7.6pt; color:var(--gray); margin:3px 0 10px 0; font-style:italic; }
+  .footnote{ font-size:7.6pt; color:var(--gray); margin:5px 0 14px 0; font-style:italic; }
 
   /* ---------- AVISO / VEREDITO (sem cor de semáforo) ---------- */
   .aviso{ border:1.4px solid var(--line); padding:9px 13px; margin:6px 0 10px 0; }
@@ -163,39 +172,44 @@
   .integ .ik{ font-size:6.6pt; color:var(--gray); text-transform:uppercase; letter-spacing:.4px; }
   .integ .iv{ font-family:"Courier New",monospace; font-size:7.4pt; word-break:break-all; display:block; margin-top:2px; }
 
-  /* ---------- INFRAÇÕES (subseção numerada + tabela, sem cartão colorido) ---------- */
-  .infra{ margin:11px 0; page-break-inside:avoid; }
+  /* ---------- INFRAÇÕES (cartão com borda única, sem cor) ---------- */
+  .infra{ border:1px solid var(--line); margin:13px 0; page-break-inside:avoid; }
   .infra .ih{
-    border:1px solid var(--line); border-bottom:none; padding:6px 11px;
-    font-weight:700; font-size:9.6pt; display:flex; justify-content:space-between;
-    background:var(--fill-soft);
+    padding:7px 11px; font-weight:700; font-size:9.6pt; display:flex; justify-content:space-between;
+    background:var(--fill-soft); border-bottom:1px solid var(--line);
   }
-  .infra table.kv{ margin:0; }
-  .infra table.kv th, .infra table.kv td{ border-top:none; }
+  .infra .ibody{ padding:0 11px; }
+  .infra table.kv{ margin:0; border-top:none; border-bottom:none; }
+  .infra table.kv tr:last-child th, .infra table.kv tr:last-child td{ border-bottom:none; }
 
-  /* ---------- ANEXO K — CHECKLIST (tabela simples, status em texto) ---------- */
-  table.ck{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:7px 0 4px 0; }
-  table.ck th{ border:1px solid var(--line); background:var(--fill-soft); text-align:left;
-    padding:6px 9px; font-size:7.6pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
-  table.ck td{ border:1px solid var(--line); padding:6px 9px; vertical-align:top; }
-  table.ck td.n{ text-align:center; font-weight:700; width:26px; font-family:"Courier New",monospace; }
+  /* ---------- ANEXO K — CHECKLIST (tabela de três linhas, status em texto) ---------- */
+  table.ck{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:7px 0 6px 0;
+    border-top:1.4px solid var(--line); border-bottom:1.4px solid var(--line); }
+  table.ck th{ text-align:left; padding:6px 9px; font-size:7.6pt; font-weight:700;
+    text-transform:uppercase; letter-spacing:.3px; border-bottom:1.2px solid var(--line); }
+  table.ck td{ padding:6px 9px; vertical-align:top; border-bottom:1px solid var(--line-soft); }
+  table.ck tbody tr:last-child td{ border-bottom:none; }
+  table.ck td.n{ text-align:center; font-weight:700; width:26px; font-family:"Courier New",monospace; color:var(--gray); }
   table.ck td.vd{ width:130px; font-weight:700; white-space:nowrap; }
   .crit-flag{ font-style:italic; font-weight:700; font-size:7.8pt; }
   .ev{ color:var(--gray); font-size:7.8pt; font-style:italic; }
 
-  table.resumo-ck{ width:auto; border-collapse:collapse; font-size:8.3pt; margin:0 0 9px 0; }
-  table.resumo-ck td{ border:1px solid var(--line); padding:5px 11px; text-align:center; }
+  table.resumo-ck{ width:auto; border-collapse:collapse; font-size:8.3pt; margin:0 0 11px 0; }
+  table.resumo-ck td{ border:1px solid var(--line); padding:6px 13px; text-align:center; }
   table.resumo-ck .v{ font-weight:800; display:block; font-size:9.6pt; }
   table.resumo-ck .k{ font-size:6.6pt; text-transform:uppercase; letter-spacing:.3px; color:var(--gray); display:block; margin-top:2px; }
 
   /* ---------- GLOSSÁRIO ---------- */
-  table.gloss{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:5px 0 4px 0; }
-  table.gloss th{ border:1px solid var(--line); background:var(--fill-soft); text-align:left; vertical-align:top;
-    width:26%; padding:6px 10px; font-weight:700; font-size:8.3pt; }
-  table.gloss td{ border:1px solid var(--line); padding:6px 10px; vertical-align:top; line-height:1.5; }
+  table.gloss{ width:100%; border-collapse:collapse; font-size:8.5pt; margin:5px 0 6px 0;
+    border-top:1.4px solid var(--line); border-bottom:1.4px solid var(--line); }
+  table.gloss th{ text-align:left; vertical-align:top; width:26%; padding:7px 12px 7px 0;
+    font-weight:700; font-size:8.3pt; color:var(--gray); border-bottom:1px solid var(--line-soft); }
+  table.gloss td{ padding:7px 0 7px 12px; vertical-align:top; line-height:1.5;
+    border-bottom:1px solid var(--line-soft); border-left:1px solid var(--line-soft); }
+  table.gloss tr:last-child th, table.gloss tr:last-child td{ border-bottom:none; }
   table.gloss .gm{ font-family:"Courier New",monospace; font-size:7.8pt; }
   .gloss-cap{ font-size:7.8pt; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
-    margin:14px 0 5px 0; border-bottom:1px solid var(--line-soft); padding-bottom:3px; }
+    margin:16px 0 6px 0; border-bottom:1px solid var(--line-soft); padding-bottom:3px; }
   .ck-ref-list{ display:flex; flex-wrap:wrap; gap:4px 18px; margin:4px 0 8px 0; }
   .ck-ref-item{ flex:0 0 47%; font-size:8.1pt; line-height:1.4; page-break-inside:avoid; }
   .ck-ref-item .n{ font-weight:700; margin-right:5px; }
@@ -393,7 +407,6 @@
 </div>
 
 {# ============ 4. IDENTIFICAÇÃO COMPLETA ============ #}
-<div class="pb"></div>
 <div class="sec">
   <div class="sec-h">4. Identificação Completa</div>
   <div class="cols">
@@ -493,7 +506,6 @@
 </div>
 
 {# ============ 8. DETALHAMENTO DAS INFRAÇÕES ============ #}
-<div class="pb"></div>
 <div class="sec">
   <div class="sec-h">8. Detalhamento das Infrações</div>
   {% for inf in b7_infracoes.infracoes %}
@@ -502,6 +514,7 @@
       <span>8.{{ loop.index }}. {{ inf.inf_id }} — {{ inf.artigo_ctb }} — {{ inf.severidade_label }}</span>
       <span>{% if inf.pontos is not none %}{{ inf.pontos }} {{ 'ponto' if inf.pontos == 1 else 'pontos' }}{% else %}sem pontuação{% endif %}</span>
     </div>
+    <div class="ibody">
     <table class="kv">
       <tr><th>Conduta observada</th><td>{{ inf.conduta_observada }}</td></tr>
       <tr><th>Timestamp no vídeo</th><td><span class="mono">{{ inf.timestamp_fmt }}</span>{% if inf.duracao_s %} — duração <span class="mono">{{ inf.duracao_s }}s</span>{% endif %}</td></tr>
@@ -513,6 +526,7 @@
       <tr><th>Fundamentação CTB</th><td>{{ inf.fundamentacao_ctb }}</td></tr>
       <tr><th>Recomendação técnica</th><td><b>{{ inf.recomendacao_tecnica }}</b></td></tr>
     </table>
+    </div>
   </div>
   {% endfor %}
   {% if b7_infracoes.eventos_sem_enquadramento %}
@@ -544,7 +558,6 @@
 </div>
 
 {# ============ 10. CHECKLIST TÉCNICO — ANEXO K ============ #}
-<div class="pb"></div>
 <div class="sec">
   <div class="sec-h">10. Checklist Técnico — Anexo K</div>
   {% set ck_total = checklist_anexo_k.total or (checklist_anexo_k.itens | length) or 1 %}
@@ -583,7 +596,6 @@
 </div>
 
 {# ============ 11. ENCAMINHAMENTO E PARECERES ============ #}
-<div class="pb"></div>
 <div class="sec">
   <div class="sec-h">11. Encaminhamento e Pareceres</div>
   <table class="kv">
