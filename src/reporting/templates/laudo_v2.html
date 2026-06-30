@@ -407,6 +407,12 @@
   .ck-inline .ck-esc{ background:var(--amber-bg); color:var(--amber); border:1px solid var(--amber-bd);
     font-weight:800; font-size:6.6pt; letter-spacing:.4px; padding:2px 7px; border-radius:4px; }
   .ck-inline .ck-ref{ margin-left:auto; font-family:"Courier New",monospace; font-size:6.8pt; color:var(--muted); }
+  /* lista de referência dos 12 critérios do Anexo K (no glossário) */
+  .ck-ref-list{ display:flex; flex-wrap:wrap; gap:5px 18px; margin-top:2px; }
+  .ck-ref-item{ flex:0 0 46%; display:flex; gap:7px; align-items:baseline; font-size:8pt;
+    color:var(--navy); line-height:1.3; page-break-inside:avoid; }
+  .ck-ref-item .n{ flex:0 0 16px; height:16px; line-height:16px; text-align:center;
+    background:var(--g-700); color:#fff; font-size:6.7pt; font-weight:700; border-radius:4px; }
 </style>
 </head>
 <body>
@@ -915,6 +921,16 @@
     <tr><th class="gm">VAL-LAU-AAAA-MM-HASH</th><td>Formato do código do laudo: prefixo <span class="gm">VAL-LAU</span>, ano (AAAA) e mês (MM) de referência e um <span class="gm">HASH</span> curto derivado do vídeo de origem — garante unicidade e rastreabilidade do documento.</td></tr>
     <tr><th>Comitê → Auditor → Supervisor</th><td>Fluxo de escalonamento da decisão: o <b>Comitê Val</b> (IA) produz o cálculo preliminar; o <b>Auditor</b> humano revisa as divergências e os itens escalados; o <b>Supervisor</b> profere a decisão final. Quanto maior a divergência/criticidade, mais alto o nível acionado.</td></tr>
   </table>
+
+  <div class="gloss-cap">Checklist Anexo K — os 12 critérios de conformidade (referência)</div>
+  <p class="lead" style="margin-bottom:7px">Critérios formais do Anexo K (TR DETRAN-SE) verificados automaticamente em todo laudo. Itens marcados
+  <span class="crit">CRÍTICO</span> que falham escalam ao Auditor. O veredito por exame (conforme / não conforme /
+  verif. humana) consta no bloco <b>Checklist Técnico — Anexo K</b>.</p>
+  <div class="ck-ref-list">
+    {% for it in checklist_anexo_k.itens %}
+    <div class="ck-ref-item"><span class="n">{{ it.numero }}</span><span class="q">{{ it.pergunta }}{% if it.critico %} <span class="crit">CRÍTICO</span>{% endif %}</span></div>
+    {% endfor %}
+  </div>
 
   <p class="nota">Documento de apoio técnico-regulatório. A decisão formal do exame permanece sob responsabilidade
   da Comissão Examinadora / Auditor humano competente. Íntegro mediante conferência do hash SHA-256 declarado no Bloco 1.</p>
