@@ -525,20 +525,31 @@
   <div class="evnode"><div class="evcard">
     <div class="top">
       <div><div class="role">Auditor — revisão humana</div>
-        <div class="who">{{ b2_sumario.encaminhamento.fluxo }}</div></div>
-      <span class="res-badge wait">Aguardando parecer</span>
+        <div class="who">{% if parecer_auditor %}{{ parecer_auditor.responsavel }}{% else %}{{ b2_sumario.encaminhamento.fluxo }}{% endif %}</div></div>
+      {% if parecer_auditor %}<span class="res-badge {{ 'ok' if parecer_auditor.resultado_final == 'APROVADO' else 'rep' }}">{{ parecer_auditor.decisao_label }}</span>{% else %}<span class="res-badge wait">Aguardando parecer</span>{% endif %}
     </div>
     <div class="meta">
+      {% if parecer_auditor %}
+      <span><span class="k">Resultado final</span><br>{{ parecer_auditor.resultado_final or '—' }}</span>
+      <span><span class="k">Registrado em</span><br><span class="dt">{{ parecer_auditor.data }}</span></span>
+      {% else %}
       <span><span class="k">Prioridade</span><br>{{ b2_sumario.encaminhamento.prioridade }}</span>
       <span><span class="k">SLA recomendado</span><br>{{ b2_sumario.encaminhamento.sla }}</span>
+      {% endif %}
     </div>
   </div></div>
   <div class="evnode"><div class="evcard">
     <div class="top">
       <div><div class="role">Supervisor — decisão final</div>
-        <div class="who">Homologação do parecer do Auditor</div></div>
-      <span class="res-badge wait">Aguardando decisão</span>
+        <div class="who">{% if decisao_supervisor %}{{ decisao_supervisor.responsavel }}{% else %}Homologação do parecer do Auditor{% endif %}</div></div>
+      {% if decisao_supervisor %}<span class="res-badge {{ 'ok' if decisao_supervisor.resultado_final == 'APROVADO' else 'rep' }}">{{ decisao_supervisor.decisao_label }}</span>{% else %}<span class="res-badge wait">Aguardando decisão</span>{% endif %}
     </div>
+    {% if decisao_supervisor %}
+    <div class="meta">
+      <span><span class="k">Resultado final</span><br>{{ decisao_supervisor.resultado_final or '—' }}</span>
+      <span><span class="k">Registrado em</span><br><span class="dt">{{ decisao_supervisor.data }}</span></span>
+    </div>
+    {% endif %}
   </div></div>
   <div class="evnode"><div class="evcard">
     <div class="top">
@@ -924,20 +935,18 @@
       <span class="st {{ 'done' if parecer_auditor else 'wait' }}">{{ 'REGISTRADO' if parecer_auditor else 'AGUARDANDO' }}</span></div>
     <div class="pbody">
       {% if parecer_auditor %}
-      <div class="fld"><span class="k">Decisão (manter / alterar / arquivar)</span><div class="v">{{ parecer_auditor.decisao }}</div></div>
-      <div class="fld"><span class="k">Justificativa técnica e referência MBEDV</span><div class="v">{{ parecer_auditor.justificativa }}</div></div>
+      <div class="fld"><span class="k">Decisão do Auditor</span><div class="v">{{ parecer_auditor.decisao_label or parecer_auditor.decisao }}{% if parecer_auditor.resultado_final %} — candidato {{ parecer_auditor.resultado_final }}{% endif %}</div></div>
+      <div class="fld"><span class="k">Justificativa técnica{% if parecer_auditor.referencia_mbedv %} e referência MBEDV{% endif %}</span><div class="v">{{ parecer_auditor.justificativa }}{% if parecer_auditor.referencia_mbedv %} ({{ parecer_auditor.referencia_mbedv }}){% endif %}</div></div>
       <div class="meta-row">
         <span><span class="k">Auditor responsável</span><div class="v">{{ parecer_auditor.responsavel }}</div></span>
         <span><span class="k">Data/hora do parecer</span><div class="v">{{ parecer_auditor.data }}</div></span>
-        <span><span class="k">Assinatura digital</span><div class="v">{{ parecer_auditor.assinatura }}</div></span>
       </div>
       {% else %}
-      <div class="fld"><span class="k">Decisão (manter / alterar / arquivar)</span><div class="blank"></div></div>
+      <div class="fld"><span class="k">Decisão do Auditor</span><div class="blank"></div></div>
       <div class="fld"><span class="k">Justificativa técnica e referência MBEDV</span><div class="blank"></div><div class="blank"></div></div>
       <div class="meta-row">
         <span><span class="k">Auditor responsável</span><div class="blank"></div></span>
         <span><span class="k">Data/hora do parecer</span><div class="blank"></div></span>
-        <span><span class="k">Assinatura digital</span><div class="blank"></div></span>
       </div>
       {% endif %}
     </div>
@@ -948,12 +957,11 @@
       <span class="st {{ 'done' if decisao_supervisor else 'wait' }}">{{ 'REGISTRADA' if decisao_supervisor else 'AGUARDANDO' }}</span></div>
     <div class="pbody">
       {% if decisao_supervisor %}
-      <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="v">{{ decisao_supervisor.decisao }}</div></div>
+      <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="v">{{ decisao_supervisor.decisao_label or decisao_supervisor.decisao }}{% if decisao_supervisor.resultado_final %} — candidato {{ decisao_supervisor.resultado_final }}{% endif %}</div></div>
       <div class="fld"><span class="k">Justificativa e concordância/divergência com o Auditor</span><div class="v">{{ decisao_supervisor.justificativa }}</div></div>
       <div class="meta-row">
         <span><span class="k">Supervisor responsável</span><div class="v">{{ decisao_supervisor.responsavel }}</div></span>
         <span><span class="k">Data/hora da decisão</span><div class="v">{{ decisao_supervisor.data }}</div></span>
-        <span><span class="k">Assinatura digital</span><div class="v">{{ decisao_supervisor.assinatura }}</div></span>
       </div>
       {% else %}
       <div class="fld"><span class="k">Decisão final do Supervisor</span><div class="blank"></div></div>
@@ -961,7 +969,6 @@
       <div class="meta-row">
         <span><span class="k">Supervisor responsável</span><div class="blank"></div></span>
         <span><span class="k">Data/hora da decisão</span><div class="blank"></div></span>
-        <span><span class="k">Assinatura digital</span><div class="blank"></div></span>
       </div>
       {% endif %}
     </div>

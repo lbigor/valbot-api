@@ -196,6 +196,7 @@ def conclusao_processo(
     tem_conduta_inadequada: bool = False,
     parecer_auditor: str | None = None,
     decisao_supervisor: str | None = None,
+    resultado_final_humano: str | None = None,
 ) -> list[str]:
     """Conclusão textual (narrativa) do processo — o "laudo final" conclusivo.
 
@@ -203,6 +204,12 @@ def conclusao_processo(
     das etapas humanas (Auditor/Supervisor pendentes ou concluídos). Mesma entrada →
     mesmo texto (constitution §III/§VII): nenhuma prosa gerada por IA. Retorna a lista
     de parágrafos.
+
+    `resultado_final_humano`: veredito FINAL publicado, com precedência Supervisor >
+    Auditor > Val Auditor calculado (mesma regra de `_laudo_blocos_14_2`/
+    `cadeia_resultado.veredito_final`). Quando o Auditor/Supervisor REVERTEM o
+    resultado calculado pela IA, a conclusão tem de refletir a decisão humana final
+    — nunca restatar cegamente `resultado_calculado` quando ela foi sobreposta.
     """
     oficial = (resultado_oficial or "—").upper()
     calc = (resultado_calculado or "—").upper()
@@ -253,16 +260,25 @@ def conclusao_processo(
     else:
         p3 = "O caso segue encaminhado ao Auditor para parecer técnico (aguardando revisão humana). "
     if decisao_supervisor:
-        p3 += f"{decisao_supervisor.rstrip('. ')}, com homologação da Supervisão."
+        p3 += f"O Supervisor {decisao_supervisor.rstrip('. ')}."
     else:
         p3 += "A decisão final do Supervisor permanece pendente de homologação."
     paras.append(p3.strip())
 
-    # 4 — conclusão baseada nas evidências
+    # 4 — conclusão baseada nas evidências (resultado FINAL, com precedência
+    # Supervisor > Auditor > Val Auditor — nunca restatar o calculado se a
+    # decisão humana o sobrepôs).
+    final = (resultado_final_humano or calc or "—").upper()
     if parecer_auditor and decisao_supervisor:
         paras.append(
             f"Baseado nas evidências técnicas reunidas e confirmado pelo Supervisor, o "
-            f"candidato deve ser considerado {calc}."
+            f"candidato deve ser considerado {final}."
+        )
+    elif parecer_auditor:
+        paras.append(
+            f"Baseado no parecer do Auditor, o candidato deve ser considerado {final} em "
+            f"caráter preliminar; a decisão final fica condicionada à homologação do "
+            f"Supervisor, nos termos do Art. 43, §1º da Resolução CONTRAN nº 1.020/2025."
         )
     else:
         paras.append(

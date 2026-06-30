@@ -1,0 +1,141 @@
+{
+  "exam": {
+    "id": "9b1f7a3e-2222-4444-8888-aaa111222333",
+    "hash": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+    "external_id": "734652437",
+    "candidato_nome": "Maria Lucia dos Santos",
+    "candidato_cpf": "12398798700",
+    "renach": "SE031229034",
+    "examinador": "Ana Paula de Oliveira",
+    "local_unidade": "CTR-SE Aracaju",
+    "auto_escola": "CFC Detran SE-031",
+    "categoria": "B",
+    "veiculo": "Chevrolet Onix 1.0",
+    "status": "concluido",
+    "resultado": "R",
+    "resultado_exame": "R",
+    "aprovado": false,
+    "pontuacao_total": 7,
+    "duration_s": 318,
+    "num_infracoes": 2,
+    "layout_confianca": 0.91,
+    "engine_backend": "gemini",
+    "engine_model": "Gemini-2.5-pro",
+    "validator_veredito": "HOMO",
+    "created_at": "2026-06-13T14:37:31",
+    "resultado_oficial": "R",
+    "resultado_calculado": "R",
+    "divergente": true,
+    "comite_concluido": true,
+    "conduta_inadequada": true,
+    "stage": "concluido",
+    "processo": "734652437",
+    "tipo_exame": "1ª Habilitação",
+    "examinador_matricula": "EX-DETRAN-SE-4521",
+    "examinador_eh_preposto": false,
+    "data_hora_exame": "2026-06-13T14:32:08",
+    "pontuacao_oficial": null,
+    "houve_interrupcao": true,
+    "motivo_interrupcao": null,
+    "matriz_versao": "matriz-nacional-v1.2"
+  },
+  "ordem_servico": {
+    "os_id": "os-0001",
+    "numero_os": "OS-A1B2C3D4",
+    "tipo_divergencia": "resultado",
+    "status": "decisao_final",
+    "pontuacao_oficial": null,
+    "pontuacao_calculada": 7
+  },
+  "laudo_comite": {
+    "causas_identificadas": "Conduta às 03:10 (subir na calçada) enquadrada de forma distinta.",
+    "recomendacao_para_auditor": "Confirmar a infração Art. 193 e reformular o registro oficial.",
+    "conclusao_comite": "manter_divergencia_com_fundamentacao",
+    "resultado_comite": "R",
+    "tipo_divergencia_pos_comite": "4_enquadramento",
+    "created_at": "2026-06-16T17:30:18"
+  },
+  "infracoes": [],
+  "parecer_auditor": {
+    "auditor": "auditor.joao@valma.com",
+    "decisao": "discorda",
+    "resultado_final": "aprovado",
+    "justificativa": "Após revisão do vídeo e áudio, a conduta às 03:10 não caracteriza infração gravíssima isolada — reclassificada para leve.",
+    "referencia_mbedv": "MBEDV-FICHA-169",
+    "created_at": "2026-06-17T09:12:00"
+  },
+  "decisao_supervisor": {
+    "supervisor": "supervisor.ana@valma.com",
+    "decisao": "homologar",
+    "concorda_auditor": true,
+    "resultado_final": "aprovado",
+    "justificativa": "Concordo com a reclassificação do Auditor; evidências de áudio confirmam conduta leve.",
+    "created_at": "2026-06-17T15:40:00"
+  },
+  "os_eventos": [
+    {"actor": "system", "action": "os_criada", "nivel": null, "details": {}, "created_at": "2026-06-16T17:30:27"},
+    {"actor": "auditor.joao@valma.com", "action": "parecer_auditor", "nivel": null, "details": {"decisao": "discorda"}, "created_at": "2026-06-17T09:12:00"},
+    {"actor": "supervisor.ana@valma.com", "action": "decisao_supervisor", "nivel": null, "details": {"decisao": "homologar"}, "created_at": "2026-06-17T15:40:00"}
+  ],
+  "divergencia": {
+    "tipo_divergencia": "4_enquadramento",
+    "subtipos_associados": [
+      {"tipo": "4. Enquadramento", "aplicavel": "Sim — PRINCIPAL", "justificativa": "Conduta enquadrada de forma distinta pela Comissão e pelo Val."}
+    ],
+    "resultado_oficial": "R",
+    "resultado_calculado": "R",
+    "concorda_resultado": true,
+    "evidencia_suficiente": true
+  },
+  "eventos": [
+    {
+      "evento_id": "ev-1", "categoria": "infracao", "descricao": "Candidata demonstrou desatenção e confusão em parada obrigatória.",
+      "timestamp_video_seg": 97, "duracao_seg": 12, "confianca": 0.72,
+      "canal_evidencia": "video+audio", "camera_origem": "interna",
+      "transcricao": "Examinadora: \"Olha, pelo amor de Deus... Você vai pra esquerda\"."
+    },
+    {
+      "evento_id": "ev-2", "categoria": "infracao", "descricao": "Veículo subiu na calçada/meio-fio durante conversão à esquerda.",
+      "timestamp_video_seg": 190, "duracao_seg": 3, "confianca": 0.94,
+      "canal_evidencia": "video", "camera_origem": "lateral_direita",
+      "transcricao": "Examinadora: \"Aí, a gente já subiu na calçada\"."
+    }
+  ],
+  "enquadramentos": [
+    {
+      "evento_id": "ev-1", "enquadrado": true, "regra_aplicada": "CTB-169",
+      "artigo_ctb": "Art. 169", "ficha_mbedv": "MBEDV-FICHA-169", "natureza": "leve",
+      "peso": 1, "excecao_aplicada": false,
+      "justificativa": "CTB Art. 169: Dirigir sem atenção — Infração: leve — Penalidade: multa.",
+      "confianca": 0.72, "requer_revisao_humana": false
+    },
+    {
+      "evento_id": "ev-2", "enquadrado": true, "regra_aplicada": "CTB-193",
+      "artigo_ctb": "Art. 193", "ficha_mbedv": "MBEDV-FICHA-193", "natureza": "gravissima",
+      "peso": 6, "excecao_aplicada": false,
+      "justificativa": "CTB Art. 193: Transitar com o veículo na calçada — Infração: gravíssima.",
+      "confianca": 0.94, "requer_revisao_humana": false
+    }
+  ],
+  "infracoes_oficiais": [
+    {"artigo_ctb": "Art. 169", "natureza": "leve", "peso": 1}
+  ],
+  "compliance": [
+    {
+      "tipo": "examinador_inadequado", "descricao": "Tom de exasperação detectado",
+      "timestamp_s": 97, "transcricao": "Olha, pelo amor de Deus... Você vai pra esquerda",
+      "classificacao": "inadequado", "severidade": "media", "status": "sinalizado"
+    },
+    {
+      "tipo": "audio_examinador", "descricao": "Instrução técnica neutra",
+      "timestamp_s": 135, "transcricao": "Vire à direita na próxima",
+      "classificacao": "adequado", "severidade": "baixa", "status": "ok"
+    }
+  ],
+  "comite_meta": {
+    "comite_versao": "v1.0",
+    "tempo_processamento_seg": 277,
+    "cost_usd": 0.018
+  },
+  "matriz_vigente": {"versao": "matriz-nacional-v1.2", "descricao": "Matriz Nacional vigente"}
+}
